@@ -25,8 +25,10 @@ import xlsx_fast
 
 from sovereign_ocr.ocr_layout import (
     is_corrupted_or_scanned_pdf_page,
+    preprocess_document_image_bytes,
     reconstruct_text_from_ocr_runs,
     render_pdf_page_png,
+    repair_shifted_cmap_text,
     run_batch_ocr,
 )
 
@@ -128,10 +130,16 @@ def extract_xlsx_text(path: Path) -> str:
 
 def classify_document_unit(filename: str, text: str, source_kind: str) -> tuple[str, float]:
     """
-    Score and classify a document or attachment unit to distinguish primary commercial documents
-    (invoices, credit memos, statements) from backup weight/scale tickets, bills of lading,
-    quotes with TBD dates, intercompany split sheets, or POS fuel/card receipts.
+    Score and classify a document or attachment unit to distinguish:
+    - Primary commercial documents (`PRIMARY_INVOICE`, `CREDIT_MEMO`, `STATEMENT`)
+    - Supporting / backup commercial documents (`SPLIT_BACKUP`, `PO_BACKUP`, `RECEIPT_EXCEPTION`,
+      `RECEIPT_BACKUP`, `QUOTE_PREINVOICE`, `EMAIL_APPROVAL`)
+    - Multilingual / Insurance / Documentoscopia claim units (`CLAIM_NOTICE_AVISO`,
+      `POLICE_REPORT_BO`, `NOTA_FISCAL`, `PROOF_OF_ADDRESS`, `IDENTITY_DOCUMENT`, `EMPTY_FILE`).
     """
+    if source_kind == "EMPTY":
+        return ("EMPTY_FILE", 0.0)
+
     low = text.lower()
     fname_low = filename.lower()
     if source_kind == "MSG_BODY":
@@ -161,6 +169,72 @@ def classify_document_unit(filename: str, text: str, source_kind: str) -> tuple[
         "intercompany" in low or "reconcile" in low or "split" in low or "allocation" in low
     ):
         return ("SPLIT_BACKUP", 30.0)
+
+    # Documentoscopia / Insurance Claims & KYC Document Roles
+    if (
+        "aviso de sinistro" in low
+        or "dados do sinistro" in low
+        or "tipo de sinistro" in low
+        or "aviso" in fname_low
+    ):
+        return ("CLAIM_NOTICE_AVISO", 90.0)
+
+    if (
+        "boletim de ocorrencia" in low
+        or "boletim de ocorrência" in low
+        or "policia civil" in low
+        or "polícia civil" in low
+        or "delegacia" in low
+        or "secretaria da seguranca" in low
+        or "secretaria de seguranca" in low
+        or bool(re.search(r"(?:^|[\s_\-])b\.?o\.?\d*(?:$|[\s_\-\.])", fname_low))
+        or "boletim" in fname_low
+        or "ocorrencia" in fname_low
+        or "ocorrência" in fname_low
+    ):
+        return ("POLICE_REPORT_BO", 85.0)
+
+    if (
+        "comprovante de residencia" in low
+        or "comprovante de residência" in low
+        or "conta de energia" in low
+        or "conta de luz" in low
+        or "energia eletrica" in low
+        or "energia elétrica" in low
+        or ("residencia" in fname_low or "residência" in fname_low)
+        or bool(re.search(r"(?:^|[\s_\-])cr\d*(?:$|[\s_\-\.])", fname_low))
+        or (
+            ("fatura" in low or "vencimento" in low)
+            and ("cep" in low or "endereco" in low or "endereço" in low or "kwh" in low or "telecom" in low)
+        )
+    ):
+        return ("PROOF_OF_ADDRESS", 72.0)
+
+    if (
+        "danfe" in low
+        or "documento auxiliar da nota fiscal" in low
+        or "chave de acesso" in low
+        or "nota fiscal eletronica" in low
+        or "nota fiscal eletrônica" in low
+        or bool(re.search(r"(?:^|[\s_\-])(?:nf|nfe|danfe)\d*(?:$|[\s_\-\.])", fname_low))
+        or "nota fiscal" in fname_low
+    ):
+        return ("NOTA_FISCAL", 88.0)
+
+    if (
+        "carteira de identidade" in low
+        or "registro geral" in low
+        or "carteira nacional de habilitacao" in low
+        or "carteira nacional de habilitação" in low
+        or "data de expedicao" in low
+        or "data de expedição" in low
+        or "filiacao" in low
+        or "filiação" in low
+        or "naturalidade" in low
+        or "identifica" in fname_low
+        or bool(re.search(r"(?:^|[\s_\-])(?:rg|cnh|id)\d*(?:$|[\s_\-\.])", fname_low))
+    ):
+        return ("IDENTITY_DOCUMENT", 75.0)
 
     score = 0.0
     if "invoice" in fname_low or fname_low.startswith("in") or "inv" in fname_low:
@@ -244,19 +318,38 @@ def _extract_pdf_pages_with_self_healing_ocr(
     models_dir: str | None = None,
 ) -> tuple[str, int, bool]:
     """
-    Extract native text from a PDF via `pdf_fast` and automatically route any scanned or
+    Extract native text from a PDF via `pdf_fast`, repair any shifted Identity-H / Type0
+    CMap ASCII offsets (`repair_shifted_cmap_text`), and automatically route any scanned or
     font-corrupted pages through 5-step visual preprocessing (`render_pdf_page_png`) + `oar-ocr-cli`.
     """
-    try:
-        pages_text = pdf_fast.parse_pdf_pages(str(pdf_path))
-    except Exception:
-        pages_text = []
+    pages_text: list[str] = []
+    pages_runs: list[list[dict[str, Any]]] = []
 
     try:
-        raw_runs = pdf_fast.parse_pdf_text_runs_pages(str(pdf_path))
-        pages_runs = [json.loads(r) if isinstance(r, str) else r for r in raw_runs]
+        scanner = pdf_fast.PdfScanner(str(pdf_path))
+        pcount = int(scanner.page_count())
+        for i in range(pcount):
+            pages_text.append(scanner.page_text(i) or "")
+            pages_runs.append([])
     except Exception:
-        pages_runs = [[] for _ in pages_text]
+        try:
+            parsed_json = json.loads(pdf_fast.parse_pdf_json(str(pdf_path)))
+            for p_obj in parsed_json.get("pages") or []:
+                pages_text.append(p_obj.get("text") or "")
+                pages_runs.append([])
+        except Exception:
+            pages_text = []
+            pages_runs = []
+
+    try:
+        sem_runs = json.loads(pdf_fast.parse_pdf_semantic_runs_json(str(pdf_path)))
+        if isinstance(sem_runs, list):
+            for r in sem_runs:
+                pno = int(r.get("page", 1)) - 1
+                if 0 <= pno < len(pages_runs):
+                    pages_runs[pno].append(r)
+    except Exception:
+        pass
 
     page_count = max(len(pages_text), 1)
     needs_ocr_any = False
@@ -266,7 +359,8 @@ def _extract_pdf_pages_with_self_healing_ocr(
     with tempfile.TemporaryDirectory(prefix="sovereign_ocr_") as tmp_dir:
         tmp_path = Path(tmp_dir)
         for idx in range(len(pages_text)):
-            ptxt = pages_text[idx] or ""
+            raw_ptxt = pages_text[idx] or ""
+            ptxt, _ = repair_shifted_cmap_text(raw_ptxt)
             pruns = pages_runs[idx] if idx < len(pages_runs) else []
             if is_corrupted_or_scanned_pdf_page(ptxt, pruns):
                 needs_ocr_any = True
@@ -274,7 +368,7 @@ def _extract_pdf_pages_with_self_healing_ocr(
                 if png_bytes:
                     img_file = tmp_path / f"page_{idx}.png"
                     img_file.write_bytes(png_bytes)
-                    ocr_jobs.append({"id": str(idx), "path": str(img_file)})
+                    ocr_jobs.append({"id": str(idx), "image_path": str(img_file), "path": str(img_file)})
             final_pages.append(ptxt)
 
         if ocr_jobs:
@@ -295,12 +389,30 @@ def unpack_document_file(
     models_dir: str | None = None,
 ) -> list[ExtractedDocumentUnit]:
     """
-    Unpack any single document file (`.pdf`, `.msg`, `.eml`, `.docx`, `.xlsx`, `.xlsm`, `.txt`)
+    Unpack any single document file (`.pdf`, `.msg`, `.eml`, `.docx`, `.xlsx`, `.xlsm`,
+    `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp`, `.webp`, `.txt`)
     into one or more classified `ExtractedDocumentUnit` objects.
     """
     suffix = path.suffix.upper()
     fname = path.name
     units: list[ExtractedDocumentUnit] = []
+
+    try:
+        if path.exists() and path.stat().st_size == 0:
+            return [
+                ExtractedDocumentUnit(
+                    unit_id=fname,
+                    filename=fname,
+                    source_kind="EMPTY",
+                    role="EMPTY_FILE",
+                    text="",
+                    page_count=0,
+                    needs_ocr=False,
+                    score=0.0,
+                )
+            ]
+    except Exception:
+        pass
 
     if suffix in (".MSG", ".EML"):
         parsed = json.loads(email_fast.parse_email_file_json(str(path)))
@@ -352,6 +464,35 @@ def unpack_document_file(
                 text=txt,
                 page_count=pcount,
                 needs_ocr=needed_ocr,
+                score=score,
+            )
+        ]
+
+    if suffix in (".PNG", ".JPG", ".JPEG", ".BMP", ".TIF", ".TIFF", ".WEBP"):
+        raw_bytes = path.read_bytes()
+        proc_png, _ = preprocess_document_image_bytes(raw_bytes)
+        txt = ""
+        with tempfile.TemporaryDirectory(prefix="sovereign_img_ocr_") as tmp_dir:
+            tmp_img = Path(tmp_dir) / "preprocessed.png"
+            tmp_img.write_bytes(proc_png if proc_png else raw_bytes)
+            ocr_out = run_batch_ocr(
+                [{"id": "0", "image_path": str(tmp_img), "path": str(tmp_img)}],
+                oar_bin=oar_bin,
+                models_dir=models_dir,
+                cache_dir=Path(tmp_dir),
+            )
+            runs = ocr_out.get("0") or []
+            txt = reconstruct_text_from_ocr_runs(runs)
+        role, score = classify_document_unit(fname, txt, "IMAGE")
+        return [
+            ExtractedDocumentUnit(
+                unit_id=fname,
+                filename=fname,
+                source_kind="IMAGE",
+                role=role,
+                text=txt,
+                page_count=1,
+                needs_ocr=True,
                 score=score,
             )
         ]

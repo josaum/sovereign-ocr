@@ -191,42 +191,240 @@ class SovereignDocumentExtractor:
         return s
 
     @staticmethod
-    def extract_dates(text: str) -> list[str]:
-        """Extract candidate dates normalized to ISO `YYYY-MM-DD`."""
-        out: list[str] = []
-        norm_txt = re.sub(r"\xa0", " ", text)
-        labeled_pats = [
-            r"(?:Invoice\s+Date|Inv\.?\s+Date|Bill\s+Date|Statement\s+Date|Request\s+Date|Credit\s+Memo\s+Date|DATE)\s*[:\|]?\s*(\d{1,2})\s*[/\-\.]+\s*(\d{1,2})\s*[/\-\.]+\s*(\d{2,4})\b",
-            r"(?:Invoice\s+Date|Inv\.?\s+Date|Bill\s+Date|DATE)\s*[:\n\s]+\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2}),?\s+(20\d{2})\b",
-        ]
-        for m in re.finditer(labeled_pats[0], norm_txt, re.IGNORECASE):
-            mm, dd, yy = int(m.group(1)), int(m.group(2)), m.group(3)
-            yr = 2000 + int(yy) if len(yy) == 2 else int(yy)
-            if 1 <= mm <= 12 and 1 <= dd <= 31 and 2000 <= yr <= 2035:
-                iso = f"{yr:04d}-{mm:02d}-{dd:02d}"
-                if iso not in out:
-                    out.append(iso)
-        for m in re.finditer(labeled_pats[1], norm_txt, re.IGNORECASE):
-            try:
-                dt = datetime.strptime(f"{m.group(1)[:3]} {int(m.group(2))} {m.group(3)}", "%b %d %Y")
-                iso = dt.strftime("%Y-%m-%d")
-                if iso not in out:
-                    out.append(iso)
-            except Exception:
-                pass
-        for m in re.finditer(r"\b(\d{1,2})\s*[/\-\.]+\s*(\d{1,2})\s*[/\-\.]+\s*(\d{2,4})\b", norm_txt):
-            mm, dd, yy = int(m.group(1)), int(m.group(2)), m.group(3)
-            yr = 2000 + int(yy) if len(yy) == 2 else int(yy)
-            if 1 <= mm <= 12 and 1 <= dd <= 31 and 2000 <= yr <= 2035:
-                iso = f"{yr:04d}-{mm:02d}-{dd:02d}"
-                if iso not in out:
-                    out.append(iso)
+    def validate_cpf(raw: str) -> bool:
+        """Validate an 11-digit Brazilian CPF using standard Mod-11 check digits."""
+        d = re.sub(r"\D", "", raw or "")
+        if len(d) != 11 or len(set(d)) == 1:
+            return False
+        s1 = sum(int(d[i]) * (10 - i) for i in range(9))
+        r1 = (s1 * 10) % 11
+        if (0 if r1 == 10 else r1) != int(d[9]):
+            return False
+        s2 = sum(int(d[i]) * (11 - i) for i in range(10))
+        r2 = (s2 * 10) % 11
+        return (0 if r2 == 10 else r2) == int(d[10])
+
+    @staticmethod
+    def validate_cnpj(raw: str) -> bool:
+        """Validate a 14-digit Brazilian CNPJ using standard Mod-11 weights."""
+        d = re.sub(r"\D", "", raw or "")
+        if len(d) != 14 or len(set(d)) == 1:
+            return False
+        w1 = (5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2)
+        w2 = (6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2)
+        r1 = sum(int(d[i]) * w1[i] for i in range(12)) % 11
+        d1 = 0 if r1 < 2 else 11 - r1
+        if d1 != int(d[12]):
+            return False
+        r2 = sum(int(d[i]) * w2[i] for i in range(13)) % 11
+        d2 = 0 if r2 < 2 else 11 - r2
+        return d2 == int(d[13])
+
+    @staticmethod
+    def validate_imei_luhn(raw: str) -> bool:
+        """Validate a 15-digit mobile device IMEI using the Luhn check digit."""
+        d = re.sub(r"\D", "", raw or "")
+        if len(d) != 15 or len(set(d)) == 1:
+            return False
+        total = 0
+        for i, ch in enumerate(d):
+            n = int(ch)
+            if i % 2 == 1:
+                n *= 2
+                if n > 9:
+                    n -= 9
+            total += n
+        return total % 10 == 0
+
+    @staticmethod
+    def validate_nfe_access_key(raw: str) -> bool:
+        """Validate a 44-digit Brazilian NF-e Chave de Acesso (IBGE UF prefix + Mod-11 DV)."""
+        d = re.sub(r"\D", "", raw or "")
+        if len(d) != 44:
+            return False
+        valid_ufs = {
+            "11", "12", "13", "14", "15", "16", "17",
+            "21", "22", "23", "24", "25", "26", "27", "28", "29",
+            "31", "32", "33", "35", "41", "42", "43",
+            "50", "51", "52", "53",
+        }
+        if d[:2] not in valid_ufs:
+            return False
+        weights = [2, 3, 4, 5, 6, 7, 8, 9]
+        total = 0
+        for idx, ch in enumerate(reversed(d[:43])):
+            total += int(ch) * weights[idx % 8]
+        rem = total % 11
+        dv = 0 if rem in (0, 1) else 11 - rem
+        return dv == int(d[43])
+
+    @classmethod
+    def extract_documentoscopia_facts(cls, text: str) -> dict[str, Any]:
+        """
+        Extract and cryptographically/algebraically validate multilingual KYC, fiscal,
+        and insurance claim entities (CPFs, CNPJs, IMEIs, 44-digit NF-e access keys,
+        CEPs, RG numbers, and BO theft/robbery occurrence typification).
+        """
+        if not text:
+            return {
+                "cpfs": [],
+                "cnpjs": [],
+                "imeis": [],
+                "nfe_access_keys": [],
+                "ceps": [],
+                "rgs": [],
+                "occurrence_type": None,
+            }
+
+        cpfs: list[str] = []
+        for m in re.finditer(r"\b(\d{3}[\.\s]?\d{3}[\.\s]?\d{3}[\-\s/\.]\d{2})\b", text):
+            digits = re.sub(r"\D", "", m.group(1))
+            if cls.validate_cpf(digits) and digits not in cpfs:
+                cpfs.append(digits)
+        for m in re.finditer(r"(?:CPF|C\.P\.F\.?)[\s:\-]*(\d{11})\b", text, re.IGNORECASE):
+            digits = m.group(1)
+            if cls.validate_cpf(digits) and digits not in cpfs:
+                cpfs.append(digits)
+
+        cnpjs: list[str] = []
+        for m in re.finditer(r"\b(\d{2}\.?\d{3}\.?\d{3}/\d{4}\-?\d{2})\b", text):
+            digits = re.sub(r"\D", "", m.group(1))
+            if cls.validate_cnpj(digits) and digits not in cnpjs:
+                cnpjs.append(digits)
+        for m in re.finditer(r"(?:CNPJ|C\.N\.P\.J\.?)[\s:\-]*(\d{14})\b", text, re.IGNORECASE):
+            digits = m.group(1)
+            if cls.validate_cnpj(digits) and digits not in cnpjs:
+                cnpjs.append(digits)
+
+        imeis: list[str] = []
+        for m in re.finditer(r"(?:IMEI|N[úu]mero\s+de\s+S[ée]rie)\s*[:\-]?\s*(\d[\d\s\.\-]{13,18}\d)", text, re.IGNORECASE):
+            digits = re.sub(r"\D", "", m.group(1))
+            if len(digits) == 15 and digits not in imeis:
+                imeis.append(digits)
+        for m in re.finditer(r"\b(35\d{13}|86\d{13})\b", text):
+            digits = m.group(1)
+            if cls.validate_imei_luhn(digits) and digits not in imeis:
+                imeis.append(digits)
+
+        nfe_keys: list[str] = []
+        for m in re.finditer(r"(?:\b\d{4}[\s\.\-]*){10}\d{4}\b", text):
+            digits = re.sub(r"\D", "", m.group(0))
+            if len(digits) == 44 and cls.validate_nfe_access_key(digits) and digits not in nfe_keys:
+                nfe_keys.append(digits)
+
+        ceps: list[str] = []
+        for m in re.finditer(r"\b(\d{2}\.?\d{3}\-\d{3})\b", text):
+            digits = re.sub(r"\D", "", m.group(1))
+            if len(digits) == 8 and digits not in ceps:
+                ceps.append(digits)
+
+        rgs: list[str] = []
         for m in re.finditer(
-            r"\b(January|February|March|April|May|June|July|August|September|October|November|December|"
-            r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2}),?\s+(20\d{2})\b",
-            norm_txt,
+            r"(?:Registro\s+Geral|\bRG\b)\s*[:\-]?\s*([0-9]{1,2}\.?[0-9]{3}\.?[0-9]{3}[\-\s]?[0-9X]|[0-9]{7,11})",
+            text,
             re.IGNORECASE,
         ):
+            val = re.sub(r"[^0-9X]", "", m.group(1).upper())
+            if 6 <= len(val) <= 11 and val not in rgs and val not in cpfs:
+                rgs.append(val)
+        for m in re.finditer(r"\b(\d{2}\.\d{3}\.\d{3}-[0-9X]{1,2})\b", text, re.IGNORECASE):
+            val = re.sub(r"[^0-9X]", "", m.group(1).upper())
+            if 6 <= len(val) <= 11 and val not in rgs and val not in cpfs:
+                rgs.append(val)
+
+        low = text.lower()
+        occ_type: str | None = None
+        if any(
+            k in low
+            for k in (
+                "roubo",
+                "assalto",
+                "arma de fogo",
+                "grave ameaca",
+                "grave ameaça",
+                "mediante violencia",
+                "mediante violência",
+                "anunciou o assalto",
+            )
+        ):
+            occ_type = "roubo"
+        elif any(
+            k in low
+            for k in (
+                "furto qualificado",
+                "abuso de confianca",
+                "abuso de confiança",
+                "destruicao ou rompimento",
+                "destruição ou rompimento",
+                "escalada",
+                "mediante fraude",
+            )
+        ):
+            occ_type = "furto_qualificado"
+        elif "furto" in low or "subtraiu" in low or "subtraido" in low or "subtraído" in low:
+            occ_type = "furto_simples"
+
+        return {
+            "cpfs": cpfs,
+            "cnpjs": cnpjs,
+            "imeis": imeis,
+            "nfe_access_keys": nfe_keys,
+            "ceps": ceps,
+            "rgs": rgs,
+            "occurrence_type": occ_type,
+        }
+
+    @staticmethod
+    def extract_dates(text: str) -> list[str]:
+        """Extract candidate dates normalized to ISO `YYYY-MM-DD` (supporting both MM/DD/YYYY and DD/MM/YYYY)."""
+        out: list[str] = []
+        norm_txt = re.sub(r"\xa0", " ", text)
+        low_txt = norm_txt.lower()
+        is_dmy_locale = any(
+            w in low_txt
+            for w in (
+                "emissão", "emissao", "expedição", "expedicao", "nascimento",
+                "vencimento", "sinistro", "ocorrência", "ocorrencia", "boletim",
+                "nota fiscal", "danfe", "cpf", "cnpj", "r$",
+            )
+        )
+
+        def _resolve_slash_date(a: int, b: int, yy: str, force_dmy: bool = False) -> str | None:
+            yr = (2000 + int(yy) if int(yy) < 50 else 1900 + int(yy)) if len(yy) == 2 else int(yy)
+            if not (1920 <= yr <= 2035):
+                return None
+            if a > 12 and 1 <= b <= 12 and a <= 31:
+                mm, dd = b, a
+            elif b > 12 and 1 <= a <= 12 and b <= 31:
+                mm, dd = a, b
+            elif 1 <= a <= 12 and 1 <= b <= 12:
+                mm, dd = (b, a) if (force_dmy or is_dmy_locale) else (a, b)
+            else:
+                return None
+            return f"{yr:04d}-{mm:02d}-{dd:02d}"
+
+        labeled_pats = [
+            (
+                r"(?:Invoice\s+Date|Inv\.?\s+Date|Bill\s+Date|Statement\s+Date|Request\s+Date|Credit\s+Memo\s+Date|DATE)\s*[:\|]?\s*(\d{1,2})\s*[/\-\.]+\s*(\d{1,2})\s*[/\-\.]+\s*(\d{2,4})\b",
+                False,
+            ),
+            (
+                r"(?:Data\s+de\s+Emiss[ãa]o|Data\s+de\s+Expedi[çc][ãa]o|Data\s+de\s+Nascimento|Data\s+do\s+Fato|Data\s+Hora|Vencimento|Emiss[ãa]o|DATA)\s*[:\|]?\s*(\d{1,2})\s*[/\-\.]+\s*(\d{1,2})\s*[/\-\.]+\s*(\d{2,4})\b",
+                True,
+            ),
+        ]
+        for pat, force_dmy in labeled_pats:
+            for m in re.finditer(pat, norm_txt, re.IGNORECASE):
+                iso = _resolve_slash_date(int(m.group(1)), int(m.group(2)), m.group(3), force_dmy=force_dmy)
+                if iso and iso not in out:
+                    out.append(iso)
+
+        en_month_pat = (
+            r"(?:Invoice\s+Date|Inv\.?\s+Date|Bill\s+Date|DATE)?\s*[:\n\s]*\b"
+            r"(January|February|March|April|May|June|July|August|September|October|November|December|"
+            r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2}),?\s+(20\d{2})\b"
+        )
+        for m in re.finditer(en_month_pat, norm_txt, re.IGNORECASE):
             try:
                 dt = datetime.strptime(f"{m.group(1)[:3]} {int(m.group(2))} {m.group(3)}", "%b %d %Y")
                 iso = dt.strftime("%Y-%m-%d")
@@ -234,7 +432,13 @@ class SovereignDocumentExtractor:
                     out.append(iso)
             except Exception:
                 pass
-        for m in re.finditer(r"\b(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b", norm_txt):
+
+        for m in re.finditer(r"\b(\d{1,2})\s*[/\-\.]+\s*(\d{1,2})\s*[/\-\.]+\s*(\d{2,4})\b", norm_txt):
+            iso = _resolve_slash_date(int(m.group(1)), int(m.group(2)), m.group(3))
+            if iso and iso not in out:
+                out.append(iso)
+
+        for m in re.finditer(r"\b(19\d{2}|20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b", norm_txt):
             iso = m.group(0)
             if iso not in out:
                 out.append(iso)
@@ -244,7 +448,8 @@ class SovereignDocumentExtractor:
     def extract_amounts(text: str) -> dict[str, Any]:
         """
         Extract total amount, current charges (ignoring prior balance forward),
-        sales tax, freight, and discount from document text.
+        sales tax, freight, and discount from document text (supports both USD `$1,250.00`
+        and BRL/European `R$ 8.699,00` formats).
         """
         current_charge_pats = [
             r"(?:Current\s+Charges|New\s+Charges|Total\s+Current\s+Charges|Current\s+Bill|Current\s+Amount\s+Due)\s*[:\$]*\s*\(?\$?\s*([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2}|[0-9]+\.[0-9]{2})\)?",
@@ -264,8 +469,23 @@ class SovereignDocumentExtractor:
                 except Exception:
                     pass
 
+        # BRL / European comma-decimal labeled totals (e.g. VALOR TOTAL DA NOTA 8.699,00 or R$ 145,90)
+        brl_pats = [
+            r"(?:VALOR\s+TOTAL\s+DA\s+NOTA|VALOR\s+TOTAL\s+DOS\s+PRODUTOS|Total\s+a\s+Pagar|Valor\s+Total|Valor\s+do\s+Documento)\s*[:\sR\$]*\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2})",
+            r"R\$\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2})",
+        ]
+        for pat in brl_pats:
+            for m in re.finditer(pat, text, re.IGNORECASE):
+                raw_brl = m.group(1).strip().replace(".", "").replace(",", ".")
+                try:
+                    val = float(raw_brl)
+                    if val > 0 and val not in candidates:
+                        candidates.append(val)
+                except Exception:
+                    pass
+
         if not candidates:
-            for m in re.finditer(r"\$\s*(-?[0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})", text):
+            for m in re.finditer(r"(?<!R)\$\s*(-?[0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})", text):
                 try:
                     candidates.append(float(m.group(1).replace(",", "")))
                 except Exception:
@@ -412,6 +632,9 @@ class SovereignDocumentExtractor:
             po_number = ""
 
         warnings: list[str] = []
+        for u in bundle.units:
+            if u.role == "EMPTY_FILE":
+                warnings.append(f"EMPTY_FILE_DETECTED:{u.filename}")
         if p_role == "RECEIPT_EXCEPTION":
             warnings.append("RECEIPT_SUBMITTED_INSTEAD_OF_INVOICE")
         if len(bundle.multi_invoice_segments) > 1:
@@ -419,6 +642,8 @@ class SovereignDocumentExtractor:
         if amts["freight"] and total_val and abs(total_val) > 0:
             if float(amts["freight"]) / abs(float(total_val)) > 0.20:
                 warnings.append("FREIGHT_EXCEEDS_20_PCT_THRESHOLD")
+
+        doc_facts = self.extract_documentoscopia_facts(f_text)
 
         vendor_match = None
         if ontology_engine is not None:
@@ -450,6 +675,7 @@ class SovereignDocumentExtractor:
             "needs_ocr": any(u.needs_ocr for u in bundle.units),
             "warnings": warnings,
             "gliner_entities": gliner_entities,
+            "documentoscopia_facts": doc_facts,
             "vendor_match": vendor_match,
         }
 

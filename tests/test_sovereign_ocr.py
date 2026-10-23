@@ -43,6 +43,7 @@ from sovereign_ocr import (
     parse_gliner2_output_to_pydantic,
     preprocess_document_image_bytes,
     reconstruct_text_from_ocr_runs,
+    repair_shifted_cmap_text,
 )
 
 
@@ -359,3 +360,87 @@ def test_pluggable_ontology_engine_and_deterministic_quad_receipt() -> None:
     )
     assert len(b1) > 200
     assert len(h1) == 16
+
+
+# ─── 6. MULTILINGUAL / DOCUMENTOSCOPIA SELF-HEALING CMAP, VALIDATORS & CLAIMS ─
+
+def test_repair_shifted_cmap_text_and_multilingual_vocab() -> None:
+    mixed_shifted = (
+        "%2/(7,0 DE OCORRENCIA\n"
+        "'$'26 DO 5(*,6752\n"
+        "'DWD +RUD 17/05/2024\n"
+        "Tipo: 5HVLGrQFLD | Nacionalidade: %UDVLOHLUD | Sexo: 0DVFXOLQR\n"
+        "Profissao: (PSUHViULR | 'HVFULomR | 2SHUDGRUD | &HOXODUHV"
+    )
+    repaired, delta = repair_shifted_cmap_text(mixed_shifted)
+    assert delta == 29
+    assert "BOLETIM" in repaired
+    assert "DADOS" in repaired
+    assert "REGISTRO" in repaired
+    assert "Data Hora" in repaired
+    assert "Residencia" in repaired
+    assert "Brasileira" in repaired
+    assert "Masculino" in repaired
+    assert "Empresario" in repaired
+    assert "Descricao" in repaired
+    assert "Operadora" in repaired
+    assert "Celulares" in repaired
+
+
+def test_documentoscopia_role_classification_and_empty_files() -> None:
+    assert classify_document_unit("Aviso - 44087628R.pdf", "AVISO DE SINISTRO\nDados do Sinistro", "PDF")[0] == "CLAIM_NOTICE_AVISO"
+    assert classify_document_unit("B.O2 - 45311435R.pdf", "POLICIA CIVIL\nDelegacia", "PDF")[0] == "POLICE_REPORT_BO"
+    assert classify_document_unit("NF1 - 44148538R.pdf", "DANFE\nChave de Acesso", "PDF")[0] == "NOTA_FISCAL"
+    assert classify_document_unit("CR - 44087628R.pdf", "Fatura Mensal\nVencimento 10/05/2024\nCEP 40296-295", "PDF")[0] == "PROOF_OF_ADDRESS"
+    assert classify_document_unit("RG2 - 43113720R.pdf", "Carteira de Identidade\nData de Expedicao", "PDF")[0] == "IDENTITY_DOCUMENT"
+    assert classify_document_unit("empty.retries", "", "EMPTY") == ("EMPTY_FILE", 0.0)
+
+
+def test_documentoscopia_validators_and_fact_extraction() -> None:
+    ext = SovereignDocumentExtractor(use_gliner=False)
+    assert ext.validate_cpf("481.922.605-34") is True
+    assert ext.validate_cpf("111.111.111-11") is False
+    assert ext.validate_imei_luhn("352775620619610") is True
+    assert ext.validate_imei_luhn("352775620619619") is False
+    assert ext.validate_nfe_access_key("3524 0605 8287 3201 8720 6529 9000 0111 8110 0000 0010") is True
+    assert ext.validate_nfe_access_key("3524 0605 8287 3201 8720 6529 9000 0111 8110 0000 0019") is False
+
+    sample_claim_text = (
+        "DANFE - Documento Auxiliar da Nota Fiscal Eletronica\n"
+        "Chave de Acesso: 3524 0605 8287 3201 8720 6529 9000 0111 8110 0000 0010\n"
+        "Data de Emissao: 18/04/2024\n"
+        "CPF: 481.922.605-34  RG: 02.724.762-77\n"
+        "CEP: 41.720-100\n"
+        "Aparelho Celular IMEI: 352775620619610\n"
+        "VALOR TOTAL DA NOTA R$ 8.699,00\n"
+        "Relato: Vitima abordada mediante grave ameaca e arma de fogo (roubo)."
+    )
+    facts = ext.extract_documentoscopia_facts(sample_claim_text)
+    assert facts["cpfs"] == ["48192260534"]
+    assert facts["imeis"] == ["352775620619610"]
+    assert facts["nfe_access_keys"] == ["35240605828732018720652990000111811000000010"]
+    assert facts["ceps"] == ["41720100"]
+    assert "0272476277" in facts["rgs"]
+    assert facts["occurrence_type"] == "roubo"
+
+    dates = ext.extract_dates(sample_claim_text)
+    assert "2024-04-18" in dates
+    amts = ext.extract_amounts(sample_claim_text)
+    assert amts["primary_total"] == 8699.0
+
+
+def test_assurant_documentoscopia_sideways_rg_and_claims_snapshot() -> None:
+    rg_png = Path(
+        "/Users/josaum/projects/mycelia-workspace/runtime_snapshots/"
+        "gcp-mycelia-platform-2026-05-15/documentoscopia_raw_data/"
+        "daase_zip_20260513_paddle_preproc_boxes/evidence/44087628R/"
+        "Documento de identificação/page_01.png"
+    )
+    if not rg_png.exists():
+        return
+
+    proc_bytes, diag = preprocess_document_image_bytes(rg_png.read_bytes())
+    assert len(proc_bytes) > 10000
+    assert diag["coarse_rotation_deg"] == 90
+    assert diag["output_size"] == (2375, 900)
+    assert diag["scale_factor"] > 1.2

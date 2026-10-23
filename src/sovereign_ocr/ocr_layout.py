@@ -40,12 +40,153 @@ import pdf_fast
 from PIL import Image, ImageOps
 
 DEFAULT_DOCUMENT_VOCABULARY = {
+    # Commercial / Accounts Payable (EN)
     "invoice", "date", "total", "amount", "bill", "ship", "sold", "remit",
     "account", "balance", "due", "tax", "payment", "service", "page",
     "description", "terms", "net", "order", "customer", "credit", "statement",
     "receipt", "charge", "from", "vendor", "supplier", "number", "subtotal",
     "item", "quantity", "price", "currency", "contract", "reference",
+    # Multilingual / Fiscal / Insurance / Documentoscopia (PT/ES)
+    "nota", "fiscal", "danfe", "chave", "acesso", "natureza", "operacao",
+    "destinatario", "remetente", "valor", "fatura", "vencimento", "comprovante",
+    "residencia", "endereco", "cliente", "boletim", "ocorrencia", "delegacia",
+    "policia", "sinistro", "aviso", "segurado", "titular", "vitima", "relato",
+    "roubo", "furto", "identidade", "expedicao", "nascimento", "filiacao",
+    "naturalidade", "cpf", "cnpj", "cep", "imei", "aparelho", "celular",
+    "documento", "estado", "secretaria", "seguranca", "registro", "dados",
 }
+
+
+def _shift_ascii_char_plus29(ch: str) -> str:
+    """Shift a single character by +29 in ASCII printable space (Identity-H GID-to-ASCII repair)."""
+    o = ord(ch)
+    if 35 <= o <= 93:
+        return chr(o + 29)
+    return ch
+
+
+def _repair_plus29_token(tok: str) -> str:
+    """
+    Detect and repair a single mixed-font token affected by +29 Identity-H GID-to-ASCII shift
+    (e.g. `'%2/(7,0'` -> `'BOLETIM'`, `'5HVLGrQFLD'` -> `'Residencia'`, `''HVFULomR'` -> `'Descricao'`,
+    `'2SHUDGRUD'` -> `'Operadora'`, `'%UDVLOHLUD'` -> `'Brasileira'`, `'0DVFXOLQR'` -> `'Masculino'`).
+    """
+    if len(tok) < 4:
+        return tok
+
+    # Never touch pure numbers, currency amounts ($1,250.00), or dates (17/05/2024)
+    if re.match(r"^[\$\-\(\)\d,\./:]+$", tok):
+        return tok
+    # Never touch normal pure-alphabetic uppercase words (e.g. INVOICE, TOTAL)
+    if tok.isalpha() and tok.isupper():
+        return tok
+
+    # Case 1: All-caps shifted token like %2/(7,0 -> BOLETIM or '$'26 -> DADOS or 5(*,6752 -> REGISTRO
+    if any(c in tok for c in "%$'*,/()") and all(35 <= ord(c) <= 61 for c in tok):
+        shifted = "".join(chr(ord(c) + 29) for c in tok)
+        if shifted.isalpha() and shifted.lower() in DEFAULT_DOCUMENT_VOCABULARY:
+            return shifted
+
+    # Case 2: Title-case or lowercase shifted token where lowercase a-z was stored at [D-]] (ord 68..93)
+    # and uppercase A-Z was stored at [$-=] (ord 36..61)
+    has_mid_upper = any("D" <= c <= "Z" for c in tok[1:])
+    has_weird_lead = tok[0] in "$%&'()*+,-./0123456789:;<=>"
+    if not (has_mid_upper or has_weird_lead):
+        return tok
+
+    # Pre-normalize common Latin-1 accented glyph artifacts inside +29 shifted words
+    norm_tok = tok.replace("omR", "cao").replace("rQ", "en").replace("iU", "ar")
+    out_chars: list[str] = []
+    for idx, ch in enumerate(norm_tok):
+        o = ord(ch)
+        if idx == 0 and 36 <= o <= 61:
+            out_chars.append(chr(o + 29))
+        elif 68 <= o <= 93:
+            out_chars.append(chr(o + 29))
+        elif ch in ("a", "c", "e", "n", "o", "r") and norm_tok != tok:
+            out_chars.append(ch)
+        else:
+            return tok
+    candidate = "".join(out_chars)
+    if candidate.isalpha() and len(candidate) >= 4:
+        low_cand = candidate.lower()
+        vowels = sum(1 for c in low_cand if c in "aeiou")
+        if 0.25 <= vowels / len(low_cand) <= 0.75:
+            return candidate
+    return tok
+
+
+def repair_shifted_cmap_text(
+    text: str,
+    vocabulary: set[str] | None = None,
+) -> tuple[str, int]:
+    """
+    Detect and self-heal broken Type0 / Identity-H `ToUnicode` CMap ASCII shifts in PDF text
+    or OCR output (both uniform page-level shifts `delta in [-35..+35]` and mixed-font `+29`
+    token-level shifts).
+    Returns `(repaired_text, detected_delta)`.
+    """
+    if not text or len(text.strip()) < 10:
+        return text, 0
+
+    vocab = vocabulary if vocabulary is not None else DEFAULT_DOCUMENT_VOCABULARY
+    orig_words = set(re.findall(r"[a-z]{3,}", text.lower()))
+    orig_hits = len(orig_words.intersection(vocab))
+
+    best_delta = 0
+    best_hits = orig_hits
+    best_text = text
+
+    # 1. Check uniform ASCII shift across the text (common deltas: +29, -4, +3, etc.)
+    sample = text[:4000]
+    for delta in (29, -29, -4, 4, 3, -3, 1, -1, 28, 30):
+        shifted_chars = []
+        for ch in sample:
+            o = ord(ch)
+            if 32 <= o <= 126:
+                no = o + delta
+                if 32 <= no <= 126:
+                    shifted_chars.append(chr(no))
+                else:
+                    shifted_chars.append(ch)
+            else:
+                shifted_chars.append(ch)
+        cand_sample = "".join(shifted_chars)
+        cand_words = set(re.findall(r"[a-z]{3,}", cand_sample.lower()))
+        hits = len(cand_words.intersection(vocab))
+        if hits > best_hits and hits >= max(3, orig_hits * 2 + 2):
+            best_hits = hits
+            best_delta = delta
+
+    if best_delta != 0:
+        full_shifted = []
+        for ch in text:
+            o = ord(ch)
+            if 32 <= o <= 126:
+                no = o + best_delta
+                full_shifted.append(chr(no) if 32 <= no <= 126 else ch)
+            else:
+                full_shifted.append(ch)
+        best_text = "".join(full_shifted)
+
+    # 2. Token-level mixed-font +29 shift repair (e.g. pages with normal headers + shifted body tokens)
+    repaired_tokens_count = 0
+
+    def _replace_match(m: re.Match[str]) -> str:
+        nonlocal repaired_tokens_count
+        raw_tok = m.group(0)
+        fixed = _repair_plus29_token(raw_tok)
+        if fixed != raw_tok:
+            repaired_tokens_count += 1
+        return fixed
+
+    token_repaired = re.sub(r"[!-~]{3,}", _replace_match, best_text)
+    if repaired_tokens_count > 0:
+        best_text = token_repaired
+        if best_delta == 0:
+            best_delta = 29
+
+    return best_text, best_delta
 
 
 def is_corrupted_or_scanned_pdf_page(
@@ -148,9 +289,16 @@ def detect_coarse_rotation_90_180_270(
     v_var = _ink_projection_variance(ink, axis=0)
 
     if v_var > sideways_variance_ratio * max(h_var, 1e-6):
+        ih, iw = ink.shape
+        sub = ink[max(1, int(ih * 0.15)) : max(2, int(ih * 0.85)), max(1, int(iw * 0.15)) : max(2, int(iw * 0.85))]
+        if sub.shape[1] >= 6:
+            mid = sub.shape[1] // 2
+            left_ink = float(np.mean(sub[:, :mid]))
+            right_ink = float(np.mean(sub[:, mid:]))
+            return 270 if left_ink > right_ink else 90
         left_ink = float(np.mean(ink[:, : ink.shape[1] // 3]))
         right_ink = float(np.mean(ink[:, (2 * ink.shape[1]) // 3 :]))
-        return 270 if left_ink >= right_ink else 90
+        return 270 if left_ink > right_ink else 90
 
     return 0
 
@@ -531,7 +679,9 @@ def reconstruct_text_from_ocr_runs(runs: list[dict[str, Any]]) -> str:
     except Exception:
         pass
 
-    return "\n".join(b["text"] for b in blocks)
+    joined = "\n".join(b["text"] for b in blocks)
+    repaired, _ = repair_shifted_cmap_text(joined)
+    return repaired
 
 
 def run_batch_ocr(
@@ -555,9 +705,18 @@ def run_batch_ocr(
     if resolved_models:
         env["MYCELIA_MODELS_DIR"] = resolved_models
 
+    normalized_jobs: list[dict[str, str]] = []
+    for j in jobs:
+        img_p = j.get("image_path") or j.get("path") or ""
+        normalized_jobs.append({
+            "id": str(j["id"]),
+            "image_path": str(img_p),
+            "path": str(img_p),
+        })
+
     results: dict[str, list[dict[str, Any]]] = {}
-    for i in range(0, len(jobs), chunk_size):
-        chunk = jobs[i : i + chunk_size]
+    for i in range(0, len(normalized_jobs), chunk_size):
+        chunk = normalized_jobs[i : i + chunk_size]
         manifest_path = work_dir / f"ocr_manifest_{i}.json"
         manifest_path.write_text(json.dumps(chunk))
         proc = subprocess.run(

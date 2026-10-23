@@ -36,6 +36,7 @@ from sovereign_ocr.ocr_layout import (
     preprocess_document_image_bytes,
     reconstruct_text_from_ocr_runs,
     render_pdf_page_png,
+    repair_shifted_cmap_text,
     run_batch_ocr,
 )
 from sovereign_ocr.ontology_engine import (
@@ -86,6 +87,7 @@ __all__ = [
     "preprocess_document_image_bytes",
     "reconstruct_text_from_ocr_runs",
     "render_pdf_page_png",
+    "repair_shifted_cmap_text",
     "run_batch_ocr",
     "unpack_bundle_directory",
     "unpack_document_file",
