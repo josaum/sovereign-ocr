@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use Sovereign-OCR in your research or enterprise systems, please cite the following work."
+title: "Sovereign-OCR: Zero-Hallucination Neuro-Symbolic Document Intelligence with Self-Healing CMap Recovery, Active Ontology Grounding, and Deterministic RDF 1.2 Provenance"
+authors:
+  - family-names: "Chiuratto Agourakis"
+    given-names: "Dionisio"
+    email: "dionisio.ca@gmail.com"
+    orcid: "https://orcid.org/0009-0000-4863-9143"
+version: 1.0.0
+doi: "10.5281/zenodo.23589075"
+date-released: 2026-10-23
+url: "https://zenodo.org/records/23589075"
+license: "CC-BY-4.0"
+preferred-citation:
+  type: article
+  title: "Sovereign-OCR: Zero-Hallucination Neuro-Symbolic Document Intelligence with Self-Healing CMap Recovery, Active Ontology Grounding, and Deterministic RDF 1.2 Provenance"
+  authors:
+    - family-names: "Chiuratto Agourakis"
+      given-names: "Dionisio"
+      email: "dionisio.ca@gmail.com"
+      orcid: "https://orcid.org/0009-0000-4863-9143"
+  year: 2026
+  month: 10
+  doi: "10.5281/zenodo.23589075"
+  url: "https://zenodo.org/records/23589075"
+  publisher:
+    name: "Zenodo"

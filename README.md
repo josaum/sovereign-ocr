@@ -1,6 +1,11 @@
 # `sovereign-ocr` — Sovereign OCR & Neuro-Symbolic Document Intelligence Engine
 
-`sovereign-ocr` is a 100% air-gapped, domain-agnostic, zero-cloud-token document intelligence and OCR engine combining zero-copy Rust format parsers, geometry- & DPI-aware visual preprocessing, strongly-typed Pydantic v2 to GLiNER 2.5 schema compilation, active runtime ontology grounding, and deterministic cryptographic provenance receipts.
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23589075.svg)](https://doi.org/10.5281/zenodo.23589075)
+
+`sovereign-ocr` is a 100% air-gapped, domain-agnostic, zero-cloud-token document intelligence and OCR engine combining zero-copy Rust format parsers, algebraic PDF CMap self-healing, geometry- & DPI-aware visual preprocessing, strongly-typed Pydantic v2 to GLiNER 2.5 schema compilation, active runtime ontology grounding, and deterministic cryptographic provenance receipts.
+
+- **Paper (Zenodo Open Access):** [Sovereign-OCR: Zero-Hallucination Neuro-Symbolic Document Intelligence with Self-Healing CMap Recovery, Active Ontology Grounding, and Deterministic RDF 1.2 Provenance](https://zenodo.org/records/23589075) (`DOI: 10.5281/zenodo.23589075`)
+- **Author:** Dionisio Chiuratto Agourakis (`dionisio.ca@gmail.com`, ORCID: [`0009-0000-4863-9143`](https://orcid.org/0009-0000-4863-9143))
 
 ---
 
@@ -29,3 +34,21 @@
 
 5. **Stage 5 — Deterministic Cryptographic Provenance (`quad_fast`):**
    - Seals every extracted fact and ontology grounding edge into an Arrow IPC / RDF quad graph (`build_deterministic_quad_receipt`) with reproducible SHA-256 receipt hashes.
+
+---
+
+## Citation
+
+If you use `sovereign-ocr` in your research or production systems, please cite:
+
+```bibtex
+@article{agourakis2026sovereignocr,
+  author    = {Chiuratto Agourakis, Dionisio},
+  title     = {Sovereign-OCR: Zero-Hallucination Neuro-Symbolic Document Intelligence with Self-Healing CMap Recovery, Active Ontology Grounding, and Deterministic RDF 1.2 Provenance},
+  year      = {2026},
+  month     = oct,
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.23589075},
+  url       = {https://doi.org/10.5281/zenodo.23589075}
+}
+```
