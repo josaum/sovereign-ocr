@@ -1,0 +1,15 @@
+{
+  "benchmark_a_central_ap": {
+    "n_invoices": 100,
+    "n_bundles_total": 103,
+    "needs_ocr_count": 65,
+    "msg_containers": 29,
+    "xlsx_docx_containers": 5,
+    "pdf_direct": 69,
+    "credit_memos_kg": 2,
+    "distinct_payee_lfb1": 23,
+    "has_gl_coding": 99,
+    "has_tax_code": 23,
+    "execution_time_s": 3.71
+  }
+}

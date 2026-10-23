@@ -327,7 +327,8 @@ def _extract_pdf_pages_with_self_healing_ocr(
 
     try:
         scanner = pdf_fast.PdfScanner(str(pdf_path))
-        pcount = int(scanner.page_count())
+        pc_attr = getattr(scanner, "page_count", 0)
+        pcount = int(pc_attr() if callable(pc_attr) else pc_attr)
         for i in range(pcount):
             pages_text.append(scanner.page_text(i) or "")
             pages_runs.append([])
