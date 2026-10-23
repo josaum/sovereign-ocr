@@ -684,6 +684,30 @@ def reconstruct_text_from_ocr_runs(runs: list[dict[str, Any]]) -> str:
     return repaired
 
 
+def resolve_oar_ocr_bin(explicit_bin: str | None = None) -> str:
+    """
+    Resolve the `oar-ocr-cli` executable path:
+    1. Explicit `explicit_bin` argument
+    2. `SOVEREIGN_OAR_OCR_BIN` environment variable
+    3. Bundled `sovereign_ocr/bin/oar-ocr-cli` inside the fat wheel (ensuring +x mode)
+    4. System `PATH` fallback (`"oar-ocr-cli"`)
+    """
+    if explicit_bin:
+        return explicit_bin
+    env_bin = os.environ.get("SOVEREIGN_OAR_OCR_BIN")
+    if env_bin:
+        return env_bin
+    bundled = Path(__file__).resolve().parent / "bin" / "oar-ocr-cli"
+    if bundled.is_file():
+        try:
+            if not os.access(bundled, os.X_OK):
+                bundled.chmod(bundled.stat().st_mode | 0o755)
+        except Exception:
+            pass
+        return str(bundled)
+    return "oar-ocr-cli"
+
+
 def run_batch_ocr(
     jobs: list[dict[str, str]],
     oar_bin: str | None = None,
@@ -697,7 +721,7 @@ def run_batch_ocr(
     """
     if not jobs:
         return {}
-    resolved_bin = oar_bin or os.environ.get("SOVEREIGN_OAR_OCR_BIN", "oar-ocr-cli")
+    resolved_bin = resolve_oar_ocr_bin(oar_bin)
     resolved_models = models_dir or os.environ.get("MYCELIA_MODELS_DIR", "")
     work_dir = cache_dir or Path("/tmp/sovereign_ocr_manifests")
     work_dir.mkdir(parents=True, exist_ok=True)
