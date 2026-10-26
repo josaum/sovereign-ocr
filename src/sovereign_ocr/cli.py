@@ -21,6 +21,7 @@ from sovereign_ocr.extractor import SovereignDocumentExtractor
 from sovereign_ocr.ingest import IngestedBundle, unpack_bundle_directory, unpack_document_file
 from sovereign_ocr.ocr_layout import preprocess_document_image_bytes, render_pdf_page_png
 from sovereign_ocr.ontology_engine import SovereignOntologyEngine
+from sovereign_ocr.sap_bpmn import build_sap_bapi_payload, export_sap_bpmn_xml, export_sap_dmn_xml
 
 
 def cmd_doctor() -> int:
@@ -61,7 +62,7 @@ def cmd_preprocess(input_path: Path, output_path: Path, page_index: int = 0) -> 
     return 0
 
 
-def cmd_extract(target_path: Path, ontology_json: Path | None = None) -> int:
+def cmd_extract(target_path: Path, ontology_json: Path | None = None, sap_bapi: bool = False) -> int:
     ont = SovereignOntologyEngine(master_kg_path=ontology_json) if ontology_json else SovereignOntologyEngine()
     ext = SovereignDocumentExtractor()
     if target_path.is_dir():
@@ -77,7 +78,21 @@ def cmd_extract(target_path: Path, ontology_json: Path | None = None) -> int:
             combined_text="\n\n".join(u.text for u in units if u.text),
         )
     result = ext.extract_bundle(bundle, ontology_engine=ont)
+    if sap_bapi:
+        result["sap_s4hana_payload"] = build_sap_bapi_payload(result)
     print(json.dumps(result, indent=2, default=str))
+    return 0
+
+
+def cmd_export_bpmn(out_bpmn: Path, out_dmn: Path | None = None) -> int:
+    out_bpmn.parent.mkdir(parents=True, exist_ok=True)
+    out_bpmn.write_text(export_sap_bpmn_xml())
+    res: dict[str, str] = {"bpmn_xml": str(out_bpmn)}
+    if out_dmn is not None:
+        out_dmn.parent.mkdir(parents=True, exist_ok=True)
+        out_dmn.write_text(export_sap_dmn_xml())
+        res["dmn_xml"] = str(out_dmn)
+    print(json.dumps(res, indent=2))
     return 0
 
 
@@ -95,6 +110,11 @@ def main() -> int:
     p_ext = sub.add_parser("extract", help="Extract structured fields and cryptographic receipt from a file or bundle")
     p_ext.add_argument("target", type=Path)
     p_ext.add_argument("--ontology-json", type=Path, default=None)
+    p_ext.add_argument("--sap-bapi", action="store_true", help="Include SAP S/4HANA BAPI_ACC_DOCUMENT_POST & OData payload")
+
+    p_bpmn = sub.add_parser("export-bpmn", help="Export SAP Signavio / SBPA compatible BPMN 2.0 and DMN 1.3 XML")
+    p_bpmn.add_argument("--bpmn-out", type=Path, required=True)
+    p_bpmn.add_argument("--dmn-out", type=Path, default=None)
 
     args = parser.parse_args()
     if args.cmd == "doctor":
@@ -102,7 +122,9 @@ def main() -> int:
     if args.cmd == "preprocess":
         return cmd_preprocess(args.input, args.output, page_index=args.page)
     if args.cmd == "extract":
-        return cmd_extract(args.target, ontology_json=args.ontology_json)
+        return cmd_extract(args.target, ontology_json=args.ontology_json, sap_bapi=args.sap_bapi)
+    if args.cmd == "export-bpmn":
+        return cmd_export_bpmn(args.bpmn_out, out_dmn=args.dmn_out)
     return 1
 
 

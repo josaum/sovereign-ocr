@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             id="Definitions_Decision_Sovereign_SAP_Governance"
+             name="Sovereign-OCR SAP S/4HANA Governance DMN 1.3"
+             namespace="https://sovereign-ocr.local/dmn/sap-governance">
+  <decision id="Decision_Sovereign_SAP_Governance" name="SAP S/4HANA Voucher &amp; Exception Routing">
+    <decisionTable id="DecisionTable_SAP_Routing" hitPolicy="FIRST">
+      <input id="Input_UnitRole" label="Primary Unit Role">
+        <inputExpression id="Expr_UnitRole" typeRef="string">
+          <text>primary_unit_role</text>
+        </inputExpression>
+      </input>
+      <input id="Input_FreightPct" label="Freight Ratio">
+        <inputExpression id="Expr_FreightPct" typeRef="number">
+          <text>freight_ratio</text>
+        </inputExpression>
+      </input>
+      <input id="Input_HasPO" label="Has Purchase Order">
+        <inputExpression id="Expr_HasPO" typeRef="boolean">
+          <text>has_purchase_order</text>
+        </inputExpression>
+      </input>
+      <output id="Output_SapDocType" label="SAP Document Type (BLART)" name="sap_doc_type" typeRef="string" />
+      <output id="Output_BpmnNode" label="Target BPMN Node" name="target_bpmn_node" typeRef="string" />
+      <output id="Output_SapBapi" label="SAP BAPI / OData Action" name="sap_action" typeRef="string" />
+      <rule id="Rule_EmptyFile">
+        <inputEntry id="IE_Empty_1"><text>"EMPTY_FILE"</text></inputEntry>
+        <inputEntry id="IE_Empty_2"><text>-</text></inputEntry>
+        <inputEntry id="IE_Empty_3"><text>-</text></inputEntry>
+        <outputEntry id="OE_Empty_1"><text>"EXCEPTION"</text></outputEntry>
+        <outputEntry id="OE_Empty_2"><text>"UserTask_ApExceptionReview"</text></outputEntry>
+        <outputEntry id="OE_Empty_3"><text>"PARK_TO_SAP_INBOX_EXCEPTION_QUEUE"</text></outputEntry>
+      </rule>
+      <rule id="Rule_ReceiptException">
+        <inputEntry id="IE_Rcpt_1"><text>"RECEIPT_EXCEPTION"</text></inputEntry>
+        <inputEntry id="IE_Rcpt_2"><text>-</text></inputEntry>
+        <inputEntry id="IE_Rcpt_3"><text>-</text></inputEntry>
+        <outputEntry id="OE_Rcpt_1"><text>"EXCEPTION"</text></outputEntry>
+        <outputEntry id="OE_Rcpt_2"><text>"UserTask_ApExceptionReview"</text></outputEntry>
+        <outputEntry id="OE_Rcpt_3"><text>"PARK_TO_SAP_INBOX_EXCEPTION_QUEUE"</text></outputEntry>
+      </rule>
+      <rule id="Rule_FreightExceeds20Pct">
+        <inputEntry id="IE_Frt_1"><text>-</text></inputEntry>
+        <inputEntry id="IE_Frt_2"><text>&gt; 0.20</text></inputEntry>
+        <inputEntry id="IE_Frt_3"><text>-</text></inputEntry>
+        <outputEntry id="OE_Frt_1"><text>"EXCEPTION"</text></outputEntry>
+        <outputEntry id="OE_Frt_2"><text>"UserTask_ApExceptionReview"</text></outputEntry>
+        <outputEntry id="OE_Frt_3"><text>"PARK_TO_SAP_INBOX_EXCEPTION_QUEUE"</text></outputEntry>
+      </rule>
+      <rule id="Rule_CreditMemoKG">
+        <inputEntry id="IE_KG_1"><text>"CREDIT_MEMO"</text></inputEntry>
+        <inputEntry id="IE_KG_2"><text>&lt;= 0.20</text></inputEntry>
+        <inputEntry id="IE_KG_3"><text>-</text></inputEntry>
+        <outputEntry id="OE_KG_1"><text>"KG"</text></outputEntry>
+        <outputEntry id="OE_KG_2"><text>"ServiceTask_PostSapFIVoucher"</text></outputEntry>
+        <outputEntry id="OE_KG_3"><text>"BAPI_ACC_DOCUMENT_POST"</text></outputEntry>
+      </rule>
+      <rule id="Rule_POInvoiceRE">
+        <inputEntry id="IE_RE_1"><text>"PRIMARY_INVOICE"</text></inputEntry>
+        <inputEntry id="IE_RE_2"><text>&lt;= 0.20</text></inputEntry>
+        <inputEntry id="IE_RE_3"><text>true</text></inputEntry>
+        <outputEntry id="OE_RE_1"><text>"RE"</text></outputEntry>
+        <outputEntry id="OE_RE_2"><text>"ServiceTask_PostSapMMInvoice"</text></outputEntry>
+        <outputEntry id="OE_RE_3"><text>"BAPI_INVOICE_CREATE"</text></outputEntry>
+      </rule>
+      <rule id="Rule_VendorInvoiceKR">
+        <inputEntry id="IE_KR_1"><text>"PRIMARY_INVOICE", "STATEMENT"</text></inputEntry>
+        <inputEntry id="IE_KR_2"><text>&lt;= 0.20</text></inputEntry>
+        <inputEntry id="IE_KR_3"><text>false</text></inputEntry>
+        <outputEntry id="OE_KR_1"><text>"KR"</text></outputEntry>
+        <outputEntry id="OE_KR_2"><text>"ServiceTask_PostSapFIVoucher"</text></outputEntry>
+        <outputEntry id="OE_KR_3"><text>"BAPI_ACC_DOCUMENT_POST"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

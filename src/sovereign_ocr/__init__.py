@@ -44,6 +44,12 @@ from sovereign_ocr.ontology_engine import (
     build_deterministic_quad_receipt,
     norm_str,
 )
+from sovereign_ocr.sap_bpmn import (
+    build_sap_bapi_payload,
+    evaluate_bpmn_gateway_route,
+    export_sap_bpmn_xml,
+    export_sap_dmn_xml,
+)
 from sovereign_ocr.schemas import (
     DocumentClassificationSchema,
     DocumentExtractionEnvelope,
@@ -69,6 +75,7 @@ __all__ = [
     "SovereignOntologyEngine",
     "build_deterministic_quad_receipt",
     "build_gliner2_schema_from_pydantic",
+    "build_sap_bapi_payload",
     "classify_document_unit",
     "compute_adaptive_dpi",
     "configure_offline_model_env",
@@ -77,6 +84,9 @@ __all__ = [
     "dpi_aware_resize_image",
     "enhance_contrast_and_denoise",
     "estimate_and_correct_skew_angle",
+    "evaluate_bpmn_gateway_route",
+    "export_sap_bpmn_xml",
+    "export_sap_dmn_xml",
     "extract_docx_text",
     "extract_xlsx_text",
     "get_gliner_fast_labels_from_pydantic",

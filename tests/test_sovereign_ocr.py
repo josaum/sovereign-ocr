@@ -31,6 +31,7 @@ from sovereign_ocr import (
     SovereignOntologyEngine,
     build_deterministic_quad_receipt,
     build_gliner2_schema_from_pydantic,
+    build_sap_bapi_payload,
     classify_document_unit,
     compute_adaptive_dpi,
     detect_and_split_multi_invoice_pdf,
@@ -38,6 +39,9 @@ from sovereign_ocr import (
     dpi_aware_resize_image,
     enhance_contrast_and_denoise,
     estimate_and_correct_skew_angle,
+    evaluate_bpmn_gateway_route,
+    export_sap_bpmn_xml,
+    export_sap_dmn_xml,
     get_gliner_fast_labels_from_pydantic,
     is_corrupted_or_scanned_pdf_page,
     parse_gliner2_output_to_pydantic,
@@ -444,3 +448,77 @@ def test_assurant_documentoscopia_sideways_rg_and_claims_snapshot() -> None:
     assert diag["coarse_rotation_deg"] == 90
     assert diag["output_size"] == (2375, 900)
     assert diag["scale_factor"] > 1.2
+
+
+# ─── 7. SAP S/4HANA BPMN 2.0, DMN 1.3 & BAPI/ODATA PAYLOAD ADAPTER ───────────
+
+def test_sap_bpmn_routing_bapi_payload_and_xml_export() -> None:
+    import xml.etree.ElementTree as ET
+
+    gov_kr = {
+        "cocd_str": "0040",
+        "doc_type": "KR",
+        "vendor_id": "9000101",
+        "payee_id": "9900202",
+        "doc_date": "2026-03-10",
+        "reference": "NIS-008421",
+        "amount": 2750.00,
+        "tax_on_invoice": 150.00,
+        "tax_code": "I1",
+        "tax_jurisdiction": "IL0000000",
+        "gl_account": "51200010",
+        "cost_center": "4010900",
+        "profit_center": "40109",
+        "pmt_terms": "ZN30",
+        "pmt_method": "A",
+        "line_item_text": "INDUSTRIAL SUPPLIES MARCH",
+        "primary_unit_role": "PRIMARY_INVOICE",
+        "warnings": [],
+        "quad_receipt_hash": "a1b2c3d4e5f60718",
+        "quad_ipc_bytes_len": 4096,
+    }
+    payload_kr = build_sap_bapi_payload(gov_kr)
+    assert payload_kr["bpmn_routing"]["is_auto_postable"] is True
+    assert payload_kr["bpmn_routing"]["target_bpmn_node"] == "ServiceTask_PostSapFIVoucher"
+    assert payload_kr["bpmn_routing"]["sap_action"] == "BAPI_ACC_DOCUMENT_POST"
+
+    bapi_kr = payload_kr["BAPI_ACC_DOCUMENT_POST"]
+    assert bapi_kr["zero_balance_verified"] is True
+    assert bapi_kr["balance_sum"] == 0.0
+    assert bapi_kr["DOCUMENTHEADER"]["COMP_CODE"] == "0040"
+    assert bapi_kr["DOCUMENTHEADER"]["DOC_DATE"] == "20260310"
+    assert bapi_kr["DOCUMENTHEADER"]["DOC_TYPE"] == "KR"
+    assert bapi_kr["ACCOUNTAP"][0]["VENDOR_NO"] == "0009000101"
+    assert bapi_kr["ACCOUNTAP"][0]["PARTNER_BK"] == "0009900202"
+    assert bapi_kr["ACCOUNTGL"][0]["GL_ACCOUNT"] == "0051200010"
+    assert bapi_kr["ACCOUNTGL"][0]["COSTCENTER"] == "0004010900"
+    assert bapi_kr["CURRENCYAMOUNT"][0]["AMT_DOCCUR"] == -2750.00
+    assert bapi_kr["CURRENCYAMOUNT"][1]["AMT_DOCCUR"] == 2600.00
+    assert bapi_kr["CURRENCYAMOUNT"][2]["AMT_DOCCUR"] == 150.00
+
+    # Credit Memo (KG) inverts AP/GL debit/credit signs while maintaining zero balance
+    gov_kg = dict(gov_kr, doc_type="KG", amount=-400.00, tax_on_invoice=0.0, tax_code="")
+    payload_kg = build_sap_bapi_payload(gov_kg)
+    bapi_kg = payload_kg["BAPI_ACC_DOCUMENT_POST"]
+    assert bapi_kg["zero_balance_verified"] is True
+    assert bapi_kg["CURRENCYAMOUNT"][0]["AMT_DOCCUR"] == 400.00
+    assert bapi_kg["CURRENCYAMOUNT"][1]["AMT_DOCCUR"] == -400.00
+
+    # Exception routing when POS receipt or >20% freight tolerance is violated
+    gov_exc = dict(
+        gov_kr,
+        primary_unit_role="RECEIPT_EXCEPTION",
+        warnings=["RECEIPT_SUBMITTED_INSTEAD_OF_INVOICE", "FREIGHT_EXCEEDS_20_PCT_THRESHOLD"],
+        approver="JANE DOE",
+    )
+    route_exc = evaluate_bpmn_gateway_route(gov_exc)
+    assert route_exc["is_auto_postable"] is False
+    assert route_exc["target_bpmn_node"] == "UserTask_ApExceptionReview"
+    assert route_exc["inbox_recipient"] == "JANE DOE"
+    assert "POS_RECEIPT_SUBMITTED_INSTEAD_OF_INVOICE" in route_exc["exception_reasons"]
+
+    # Validate BPMN 2.0 and DMN 1.3 XML schemas parse cleanly
+    bpmn_root = ET.fromstring(export_sap_bpmn_xml())
+    dmn_root = ET.fromstring(export_sap_dmn_xml())
+    assert "definitions" in bpmn_root.tag
+    assert "definitions" in dmn_root.tag
