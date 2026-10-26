@@ -115,6 +115,7 @@ def build_fat_wheel(
         entry_points = (
             "[console_scripts]\n"
             "sovereign-ocr = sovereign_ocr.cli:main\n"
+            "sovereign-ocr-mcp = sovereign_ocr.cli:main_mcp\n"
         ).encode("utf-8")
         add_bytes(f"{dist_info}/entry_points.txt", entry_points)
 

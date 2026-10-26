@@ -1,0 +1,124 @@
+{
+  "name": "sovereign_ocr_validate_kyc_fiscal",
+  "title": "Cryptographic/Algebraic KYC & Fiscal Validator (CPF, CNPJ, IMEI, NF-e)",
+  "description": "Extract and algebraically validate CPFs (11-digit Mod-11), CNPJs (14-digit Mod-11), mobile IMEIs (15-digit Luhn), Brazilian NF-e 44-digit access keys (IBGE UF + Mod-11), CEPs, RG numbers, dates, amounts, and police report (BO) occurrence typification.",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "Document or claim bundle text to extract and validate facts from"
+      },
+      "filename": {
+        "type": "string",
+        "description": "Optional filename for document unit role classification",
+        "default": "document.pdf"
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "Document or claim bundle text to extract and validate facts from"
+      },
+      "filename": {
+        "type": "string",
+        "description": "Optional filename for document unit role classification",
+        "default": "document.pdf"
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "classified_role": {
+        "type": "string"
+      },
+      "role_score": {
+        "type": "number"
+      },
+      "cpfs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "cnpjs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "imeis": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "nfe_access_keys": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "ceps": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "rgs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "occurrence_type": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "dates": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "primary_amount": {
+        "type": [
+          "number",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "classified_role",
+      "cpfs",
+      "cnpjs",
+      "imeis",
+      "nfe_access_keys",
+      "dates"
+    ]
+  },
+  "annotations": {
+    "title": "KYC & Fiscal Fact Validator",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

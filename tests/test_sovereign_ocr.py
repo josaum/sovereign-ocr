@@ -28,6 +28,7 @@ from sovereign_ocr import (
     IngestedBundle,
     InvoiceHeaderSchema,
     SovereignDocumentExtractor,
+    SovereignMcpDispatcher,
     SovereignOntologyEngine,
     build_deterministic_quad_receipt,
     build_gliner2_schema_from_pydantic,
@@ -40,6 +41,7 @@ from sovereign_ocr import (
     enhance_contrast_and_denoise,
     estimate_and_correct_skew_angle,
     evaluate_bpmn_gateway_route,
+    export_mcp_schema_directory,
     export_sap_bpmn_xml,
     export_sap_dmn_xml,
     get_gliner_fast_labels_from_pydantic,
@@ -522,3 +524,135 @@ def test_sap_bpmn_routing_bapi_payload_and_xml_export() -> None:
     dmn_root = ET.fromstring(export_sap_dmn_xml())
     assert "definitions" in bpmn_root.tag
     assert "definitions" in dmn_root.tag
+
+
+# ─── 8. MODEL CONTEXT PROTOCOL (MCP) SERVER: LATEST SPECS (2025-11-25 / 2026-07-28) ─
+
+def test_mcp_server_latest_spec_stdio_and_streamable_http(tmp_path: Path) -> None:
+    import json
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+
+    dispatcher = SovereignMcpDispatcher()
+
+    # 1. Stateful initialize (2025-11-25) & Stateless server/discover (2026-07-28)
+    init_resp = dispatcher.handle_rpc(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "pytest", "version": "1.0"}},
+        }
+    )
+    assert init_resp is not None
+    assert init_resp["result"]["protocolVersion"] == "2025-11-25"
+    assert init_resp["result"]["serverInfo"]["name"] == "sovereign-ocr"
+
+    disc_resp = dispatcher.handle_rpc(
+        {"jsonrpc": "2.0", "id": 2, "method": "server/discover", "params": {"protocolVersion": "2026-07-28"}}
+    )
+    assert disc_resp is not None
+    assert disc_resp["result"]["protocolVersion"] == "2026-07-28"
+
+    # Notification returns None
+    assert dispatcher.handle_rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+
+    # 2. tools/list: Verify JSON Schema 2020-12 inputSchema, outputSchema, annotations, title, x-mcp-header
+    tools_resp = dispatcher.handle_rpc({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
+    assert tools_resp is not None
+    tools = tools_resp["result"]["tools"]
+    assert len(tools) == 7
+    for t in tools:
+        assert "name" in t and "title" in t and "description" in t
+        assert t["inputSchema"]["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+        assert t["outputSchema"]["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+        assert t["outputSchema"]["type"] == "object"
+        ann = t["annotations"]
+        assert all(k in ann for k in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"))
+        assert ann["openWorldHint"] is False
+
+    extract_tool = next(t for t in tools if t["name"] == "sovereign_ocr_extract_bundle")
+    assert extract_tool["inputSchema"]["properties"]["entity_code"]["x-mcp-header"] == "Mcp-Param-Entity-Code"
+
+    # 3. tools/call: Verify both content and structuredContent
+    doc_call = dispatcher.handle_rpc(
+        {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "sovereign_ocr_doctor", "arguments": {}}}
+    )
+    assert doc_call is not None
+    assert doc_call["result"]["isError"] is False
+    assert doc_call["result"]["structuredContent"]["status"] == "ok"
+    assert doc_call["result"]["structuredContent"]["modules"]["pdf_fast"] is True
+
+    cmap_call = dispatcher.handle_rpc(
+        {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "sovereign_ocr_repair_cmap",
+                "arguments": {"text": "%2/(7,0 DE OCORRENCIA\n'$'26 DO 5(*,6752"},
+            },
+        }
+    )
+    assert cmap_call is not None
+    sc_cmap = cmap_call["result"]["structuredContent"]
+    assert sc_cmap["detected_ascii_shift_delta"] == 29
+    assert "BOLETIM" in sc_cmap["repaired_text"]
+
+    kyc_call = dispatcher.handle_rpc(
+        {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "sovereign_ocr_validate_kyc_fiscal",
+                "arguments": {
+                    "text": (
+                        "DANFE - Chave de Acesso: 3524 0605 8287 3201 8720 6529 9000 0111 8110 0000 0010\n"
+                        "CPF: 481.922.605-34 | IMEI: 352775620619610 | VALOR TOTAL R$ 4.999,00"
+                    ),
+                    "filename": "NF1.pdf",
+                },
+            },
+        }
+    )
+    assert kyc_call is not None
+    sc_kyc = kyc_call["result"]["structuredContent"]
+    assert sc_kyc["classified_role"] == "NOTA_FISCAL"
+    assert sc_kyc["cpfs"] == ["48192260534"]
+    assert sc_kyc["imeis"] == ["352775620619610"]
+    assert sc_kyc["primary_amount"] == 4999.0
+
+    # 4. resources/list & resources/read, prompts/list & prompts/get
+    res_list = dispatcher.handle_rpc({"jsonrpc": "2.0", "id": 7, "method": "resources/list"})
+    assert res_list is not None
+    assert len(res_list["result"]["resources"]) == 4
+
+    res_read = dispatcher.handle_rpc(
+        {"jsonrpc": "2.0", "id": 8, "method": "resources/read", "params": {"uri": "sovereign://workflows/sap-s4hana.bpmn"}}
+    )
+    assert res_read is not None
+    assert "bpmn:definitions" in res_read["result"]["contents"][0]["text"]
+
+    prm_list = dispatcher.handle_rpc({"jsonrpc": "2.0", "id": 9, "method": "prompts/list"})
+    assert prm_list is not None
+    assert len(prm_list["result"]["prompts"]) == 2
+
+    prm_get = dispatcher.handle_rpc(
+        {
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "prompts/get",
+            "params": {"name": "audit_sap_ap_bundle", "arguments": {"target_path": "/tmp/inv.pdf", "entity_code": "0010"}},
+        }
+    )
+    assert prm_get is not None
+    assert "sovereign_ocr_extract_bundle" in prm_get["result"]["messages"][0]["content"]["text"]
+
+    # 5. Export MCP schema directory
+    exported = export_mcp_schema_directory(tmp_path / "mcp_schemas")
+    assert len(exported) == 8
+    assert (tmp_path / "mcp_schemas" / "sovereign_ocr_extract_bundle.json").is_file()
+    assert (tmp_path / "mcp_schemas" / "instructions.md").is_file()
+

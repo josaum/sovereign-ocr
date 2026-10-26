@@ -1,0 +1,127 @@
+{
+  "name": "sovereign_ocr_extract_bundle",
+  "title": "5-Stage Sovereign Document Bundle Extractor",
+  "description": "Unpack, self-heal, OCR, extract, and ontology-ground a single document file or multi-attachment bundle directory (.pdf, .msg, .eml, .docx, .xlsx, .png, .jpg), emitting a deterministic RDF 1.2 quad_fast provenance receipt and optional SAP S/4HANA BAPI payload.",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "target_path": {
+        "type": "string",
+        "description": "Absolute path to a document file or bundle directory"
+      },
+      "entity_code": {
+        "type": "string",
+        "description": "Optional ERP company code / entity code (e.g. '0010')",
+        "default": "",
+        "x-mcp-header": "Mcp-Param-Entity-Code"
+      },
+      "ontology_json_path": {
+        "type": "string",
+        "description": "Optional path to master ontology JSON file for active runtime grounding"
+      },
+      "include_sap_bapi": {
+        "type": "boolean",
+        "description": "Include ready-to-post SAP S/4HANA BAPI_ACC_DOCUMENT_POST & OData payload",
+        "default": true
+      }
+    },
+    "required": [
+      "target_path"
+    ],
+    "additionalProperties": false
+  },
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "target_path": {
+        "type": "string",
+        "description": "Absolute path to a document file or bundle directory"
+      },
+      "entity_code": {
+        "type": "string",
+        "description": "Optional ERP company code / entity code (e.g. '0010')",
+        "default": "",
+        "x-mcp-header": "Mcp-Param-Entity-Code"
+      },
+      "ontology_json_path": {
+        "type": "string",
+        "description": "Optional path to master ontology JSON file for active runtime grounding"
+      },
+      "include_sap_bapi": {
+        "type": "boolean",
+        "description": "Include ready-to-post SAP S/4HANA BAPI_ACC_DOCUMENT_POST & OData payload",
+        "default": true
+      }
+    },
+    "required": [
+      "target_path"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "bundle_id": {
+        "type": "string"
+      },
+      "primary_unit_kind": {
+        "type": "string"
+      },
+      "primary_unit_role": {
+        "type": "string"
+      },
+      "needs_ocr": {
+        "type": "boolean"
+      },
+      "extracted_doc_type": {
+        "type": "string"
+      },
+      "extracted_date": {
+        "type": "string"
+      },
+      "extracted_reference": {
+        "type": "string"
+      },
+      "extracted_amount": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "warnings": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "documentoscopia_facts": {
+        "type": "object"
+      },
+      "quad_receipt_hash": {
+        "type": "string"
+      },
+      "sap_s4hana_payload": {
+        "type": [
+          "object",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "bundle_id",
+      "primary_unit_kind",
+      "primary_unit_role",
+      "warnings"
+    ]
+  },
+  "annotations": {
+    "title": "5-Stage Bundle Extractor",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

@@ -19,6 +19,11 @@ from pathlib import Path
 
 from sovereign_ocr.extractor import SovereignDocumentExtractor
 from sovereign_ocr.ingest import IngestedBundle, unpack_bundle_directory, unpack_document_file
+from sovereign_ocr.mcp_server import (
+    export_mcp_schema_directory,
+    run_stdio_server,
+    run_streamable_http_server,
+)
 from sovereign_ocr.ocr_layout import preprocess_document_image_bytes, render_pdf_page_png
 from sovereign_ocr.ontology_engine import SovereignOntologyEngine
 from sovereign_ocr.sap_bpmn import build_sap_bapi_payload, export_sap_bpmn_xml, export_sap_dmn_xml
@@ -96,6 +101,28 @@ def cmd_export_bpmn(out_bpmn: Path, out_dmn: Path | None = None) -> int:
     return 0
 
 
+def cmd_mcp(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8765) -> int:
+    if transport == "http":
+        return run_streamable_http_server(host=host, port=port)
+    return run_stdio_server()
+
+
+def cmd_export_mcp_schemas(out_dir: Path) -> int:
+    written = export_mcp_schema_directory(out_dir)
+    print(json.dumps({"out_dir": str(out_dir), "files": written}, indent=2))
+    return 0
+
+
+def main_mcp() -> int:
+    """Direct MCP server entrypoint (`sovereign-ocr-mcp`)."""
+    parser = argparse.ArgumentParser(prog="sovereign-ocr-mcp", description="Sovereign OCR MCP Server (stdio / Streamable HTTP)")
+    parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
+    parser.add_argument("--host", type=str, default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8765)
+    args = parser.parse_args()
+    return cmd_mcp(transport=args.transport, host=args.host, port=args.port)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="sovereign-ocr", description="Sovereign OCR & Document Intelligence CLI")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -116,6 +143,14 @@ def main() -> int:
     p_bpmn.add_argument("--bpmn-out", type=Path, required=True)
     p_bpmn.add_argument("--dmn-out", type=Path, default=None)
 
+    p_mcp = sub.add_parser("mcp", help="Run the Model Context Protocol (MCP) server (stdio or Streamable HTTP /mcp)")
+    p_mcp.add_argument("--transport", choices=["stdio", "http"], default="stdio")
+    p_mcp.add_argument("--host", type=str, default="127.0.0.1")
+    p_mcp.add_argument("--port", type=int, default=8765)
+
+    p_mcp_exp = sub.add_parser("export-mcp-schemas", help="Export MCP tool JSON schemas and instructions.md")
+    p_mcp_exp.add_argument("out_dir", type=Path)
+
     args = parser.parse_args()
     if args.cmd == "doctor":
         return cmd_doctor()
@@ -125,6 +160,10 @@ def main() -> int:
         return cmd_extract(args.target, ontology_json=args.ontology_json, sap_bapi=args.sap_bapi)
     if args.cmd == "export-bpmn":
         return cmd_export_bpmn(args.bpmn_out, out_dmn=args.dmn_out)
+    if args.cmd == "mcp":
+        return cmd_mcp(transport=args.transport, host=args.host, port=args.port)
+    if args.cmd == "export-mcp-schemas":
+        return cmd_export_mcp_schemas(args.out_dir)
     return 1
 
 

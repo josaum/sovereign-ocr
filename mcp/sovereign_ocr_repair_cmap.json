@@ -1,0 +1,64 @@
+{
+  "name": "sovereign_ocr_repair_cmap",
+  "title": "Algebraic PDF ToUnicode CMap Self-Healing & Corruption Gate",
+  "description": "Detect whether a PDF page or text string suffers from broken/shifted Type0/Identity-H ToUnicode CMap tables (e.g. delta=+29 or -4 GID-to-ASCII shift) and algebraically self-heal both uniform and mixed-font shifted tokens in <1 ms.",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "Raw PDF or OCR text to inspect and self-heal"
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "Raw PDF or OCR text to inspect and self-heal"
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "was_corrupted_or_scanned_before": {
+        "type": "boolean"
+      },
+      "needs_visual_ocr_after_repair": {
+        "type": "boolean"
+      },
+      "detected_ascii_shift_delta": {
+        "type": "integer"
+      },
+      "repaired_text": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "was_corrupted_or_scanned_before",
+      "needs_visual_ocr_after_repair",
+      "detected_ascii_shift_delta",
+      "repaired_text"
+    ]
+  },
+  "annotations": {
+    "title": "Algebraic CMap Repair",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

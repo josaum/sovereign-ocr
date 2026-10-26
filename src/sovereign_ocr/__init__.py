@@ -13,6 +13,8 @@ Exposes the 5-stage Sovereign Document Intelligence pipeline:
    deterministic `quad_fast` cryptographic provenance receipts.
 """
 
+__version__ = "1.0.0"
+
 from sovereign_ocr.extractor import SovereignDocumentExtractor
 from sovereign_ocr.ingest import (
     ExtractedDocumentUnit,
@@ -23,6 +25,16 @@ from sovereign_ocr.ingest import (
     extract_xlsx_text,
     unpack_bundle_directory,
     unpack_document_file,
+)
+from sovereign_ocr.mcp_server import (
+    SovereignMcpDispatcher,
+    execute_mcp_tool,
+    export_mcp_schema_directory,
+    get_mcp_prompts,
+    get_mcp_resources,
+    get_mcp_tools,
+    run_stdio_server,
+    run_streamable_http_server,
 )
 from sovereign_ocr.ocr_layout import (
     DEFAULT_DOCUMENT_VOCABULARY,
@@ -61,8 +73,6 @@ from sovereign_ocr.schemas import (
     parse_gliner2_output_to_pydantic,
 )
 
-__version__ = "1.0.0"
-
 __all__ = [
     "DEFAULT_DOCUMENT_VOCABULARY",
     "DocumentClassificationSchema",
@@ -72,6 +82,7 @@ __all__ = [
     "InvoiceHeaderSchema",
     "RemitToPayeeSchema",
     "SovereignDocumentExtractor",
+    "SovereignMcpDispatcher",
     "SovereignOntologyEngine",
     "build_deterministic_quad_receipt",
     "build_gliner2_schema_from_pydantic",
@@ -85,11 +96,16 @@ __all__ = [
     "enhance_contrast_and_denoise",
     "estimate_and_correct_skew_angle",
     "evaluate_bpmn_gateway_route",
+    "execute_mcp_tool",
+    "export_mcp_schema_directory",
     "export_sap_bpmn_xml",
     "export_sap_dmn_xml",
     "extract_docx_text",
     "extract_xlsx_text",
     "get_gliner_fast_labels_from_pydantic",
+    "get_mcp_prompts",
+    "get_mcp_resources",
+    "get_mcp_tools",
     "is_corrupted_or_scanned_pdf_page",
     "norm_str",
     "parse_gliner2_output_to_pydantic",
@@ -99,6 +115,8 @@ __all__ = [
     "render_pdf_page_png",
     "repair_shifted_cmap_text",
     "run_batch_ocr",
+    "run_stdio_server",
+    "run_streamable_http_server",
     "unpack_bundle_directory",
     "unpack_document_file",
 ]

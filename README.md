@@ -37,6 +37,31 @@
 
 ---
 
+## Model Context Protocol (MCP) Server (`2025-11-25` & `2026-07-28` Specs)
+
+`sovereign-ocr` includes a built-in, zero-dependency Model Context Protocol (MCP) server (`sovereign_ocr.mcp_server`) supporting both **Stdio** (`--transport stdio`) and **Streamable HTTP** (`--transport http` on `/mcp` with `Mcp-Session-Id` & `MCP-Protocol-Version` headers), `Tool.outputSchema` (JSON Schema 2020-12), `CallToolResult.structuredContent`, tool behavioral `annotations`, and `x-mcp-header` (`Mcp-Param-Entity-Code`).
+
+```bash
+# Run over Stdio (Claude Desktop / Cursor / Antigravity / MCP Inspector)
+sovereign-ocr mcp --transport stdio
+# Or via dedicated entrypoint:
+sovereign-ocr-mcp
+
+# Run over Streamable HTTP (/mcp endpoint)
+sovereign-ocr mcp --transport http --host 127.0.0.1 --port 8765
+```
+
+### Exposed MCP Tools (7 Tools)
+1. `sovereign_ocr_doctor` — Inspect air-gapped Rust PyO3 wheels, `oar-ocr-cli` binary, and offline GLiNER2 availability.
+2. `sovereign_ocr_preprocess_image` — Run the 5-step geometry/DPI visual preprocessing pipeline on an image or PDF page.
+3. `sovereign_ocr_repair_cmap` — Run the algebraic CMap shift solver (`\Delta = +29`) and corruption detector on raw PDF text.
+4. `sovereign_ocr_validate_kyc_fiscal` — Classify KYC/insurance/fiscal roles and validate CPF, CNPJ, IMEI (Luhn), and 44-digit NF-e access keys.
+5. `sovereign_ocr_extract_bundle` — Unpack, OCR, ground against an active ontology, seal with `quad_fast`, and emit an SAP S/4HANA `BAPI_ACC_DOCUMENT_POST` payload.
+6. `sovereign_ocr_build_sap_bapi` — Transform a governed extraction record into an SAP S/4HANA BAPI, OData, and BPMN 2.0 gateway decision.
+7. `sovereign_ocr_export_bpmn_dmn` — Export OASIS BPMN 2.0 XML and OMG DMN 1.3 XML for SAP Signavio and SAP Build Process Automation (SBPA).
+
+---
+
 ## Citation
 
 If you use `sovereign-ocr` in your research or production systems, please cite:

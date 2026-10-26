@@ -1,0 +1,84 @@
+{
+  "name": "sovereign_ocr_preprocess_image",
+  "title": "5-Step Geometry- & DPI-Aware Visual Preprocessor",
+  "description": "Run the 5-step visual preprocessing pipeline (adaptive DPI, percentile luminance stretching [p1..p95]->[0..255], interior-crop 90/180/270 orientation detection, two-stage projection-profile deskew [-12..+12 deg], and Lanczos receptive-field resize) on an image or PDF page.",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "input_path": {
+        "type": "string",
+        "description": "Absolute path to the input image (.png, .jpg, .tiff, .webp) or .pdf file"
+      },
+      "output_path": {
+        "type": "string",
+        "description": "Optional output path where the preprocessed PNG will be written"
+      },
+      "page_index": {
+        "type": "integer",
+        "description": "0-based page index when input_path is a PDF",
+        "default": 0
+      }
+    },
+    "required": [
+      "input_path"
+    ],
+    "additionalProperties": false
+  },
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "input_path": {
+        "type": "string",
+        "description": "Absolute path to the input image (.png, .jpg, .tiff, .webp) or .pdf file"
+      },
+      "output_path": {
+        "type": "string",
+        "description": "Optional output path where the preprocessed PNG will be written"
+      },
+      "page_index": {
+        "type": "integer",
+        "description": "0-based page index when input_path is a PDF",
+        "default": 0
+      }
+    },
+    "required": [
+      "input_path"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "input_path": {
+        "type": "string"
+      },
+      "output_path": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "output_bytes_len": {
+        "type": "integer"
+      },
+      "diagnostics": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "input_path",
+      "output_bytes_len",
+      "diagnostics"
+    ]
+  },
+  "annotations": {
+    "title": "5-Step Visual Preprocessor",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

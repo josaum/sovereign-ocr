@@ -1,0 +1,64 @@
+{
+  "name": "sovereign_ocr_build_sap_bapi",
+  "title": "SAP S/4HANA BAPI_ACC_DOCUMENT_POST & OData Payload Builder",
+  "description": "Transform a governed Sovereign-OCR record into a ready-to-post SAP S/4HANA BAPI_ACC_DOCUMENT_POST + API_SUPPLIERINVOICE_PROCESS_SRV OData payload with BPMN 2.0 gateway routing and strict zero-balance verification (sum(AMT_DOCCUR) == 0.00).",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "governed_record": {
+        "type": "object",
+        "description": "Governed extraction record dictionary"
+      }
+    },
+    "required": [
+      "governed_record"
+    ],
+    "additionalProperties": false
+  },
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "governed_record": {
+        "type": "object",
+        "description": "Governed extraction record dictionary"
+      }
+    },
+    "required": [
+      "governed_record"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "bpmn_routing": {
+        "type": "object"
+      },
+      "BAPI_ACC_DOCUMENT_POST": {
+        "type": "object"
+      },
+      "API_SUPPLIERINVOICE_PROCESS_SRV": {
+        "type": "object"
+      },
+      "ARCHIVELINK_PROVENANCE": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "bpmn_routing",
+      "BAPI_ACC_DOCUMENT_POST",
+      "API_SUPPLIERINVOICE_PROCESS_SRV",
+      "ARCHIVELINK_PROVENANCE"
+    ]
+  },
+  "annotations": {
+    "title": "SAP S/4HANA BAPI Builder",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

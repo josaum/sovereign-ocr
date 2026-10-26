@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "sovereign-ocr": {
+      "command": "/Users/josaum/projects/central-ocr/.venv/bin/python",
+      "args": [
+        "/Users/josaum/projects/sovereign-ocr/dist/sovereign-ocr",
+        "mcp",
+        "--transport",
+        "stdio"
+      ]
+    }
+  }
+}

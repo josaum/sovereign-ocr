@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 sovereign-ocr = "sovereign_ocr.cli:main"
+sovereign-ocr-mcp = "sovereign_ocr.cli:main_mcp"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,0 +1,51 @@
+{
+  "name": "sovereign_ocr_doctor",
+  "title": "Sovereign-OCR Environment & Native Wheel Doctor",
+  "description": "Verify availability of all 8 native Rust PyO3 abi3 extension modules (pdf_fast, pdf_fast_write, email_fast, docx_fast, xlsx_fast, layout_fast, quad_fast, gliner_fast_py) and the embedded oar-ocr-cli ONNX binary.",
+  "parameters": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      },
+      "oar_ocr_bin": {
+        "type": "string"
+      },
+      "modules": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "boolean"
+        }
+      }
+    },
+    "required": [
+      "status",
+      "version",
+      "oar_ocr_bin",
+      "modules"
+    ]
+  },
+  "annotations": {
+    "title": "Environment Doctor",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}
