@@ -20,8 +20,12 @@ from typing import Any
 import docx_fast
 import email_fast
 import pdf_fast
-import pdf_fast_write
 import xlsx_fast
+
+try:
+    import pdf_fast_write
+except ImportError:
+    pdf_fast_write = None  # type: ignore[assignment]
 
 from sovereign_ocr.ocr_layout import (
     is_corrupted_or_scanned_pdf_page,

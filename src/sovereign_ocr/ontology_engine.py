@@ -21,11 +21,21 @@ import re
 from pathlib import Path
 from typing import Any
 
-import align_fast_py
 import olaya
 import ontology_fast
-import owl_fast
-import quad_fast
+
+try:
+    import align_fast_py
+except ImportError:
+    align_fast_py = None  # type: ignore[assignment]
+try:
+    import owl_fast
+except ImportError:
+    owl_fast = None  # type: ignore[assignment]
+try:
+    import quad_fast
+except ImportError:
+    quad_fast = None  # type: ignore[assignment]
 
 
 def norm_str(s: str) -> str:
@@ -101,7 +111,14 @@ def build_deterministic_quad_receipt(
             prov,
         ),
     ]
-    quad_ipc_bytes = quad_fast.build_quad_ipc(quads)
+    if quad_fast is not None:
+        quad_ipc_bytes = quad_fast.build_quad_ipc(quads)
+    else:
+        quad_ipc_bytes = json.dumps(
+            quads,
+            sort_keys=True,
+            default=lambda b: b.hex() if isinstance(b, bytes) else str(b),
+        ).encode("utf-8")
     receipt_hash = hashlib.sha256(quad_ipc_bytes).hexdigest()[:16]
     return quad_ipc_bytes, receipt_hash
 
@@ -127,15 +144,18 @@ class SovereignOntologyEngine:
     ) -> None:
         self.base_iri = base_iri.rstrip("#/")
         self.reconciliation_gl_accounts = reconciliation_gl_accounts or {"21100001"}
-        self.aligner = align_fast_py.Aligner()
+        self.aligner = align_fast_py.Aligner() if align_fast_py is not None else None
 
         # 1. Load optional RDF/OWL Turtle ontology
         if ttl_path is not None and ttl_path.exists():
             ttl_bytes = ttl_path.read_bytes()
             raw_triples = ontology_fast.parse_triples(ttl_bytes)
             self.triples = json.loads(raw_triples) if isinstance(raw_triples, str) else raw_triples
-            raw_chunks = owl_fast.parse_ontology_chunks(ttl_path.read_text(), "turtle")
-            self.owl_chunks = json.loads(raw_chunks) if isinstance(raw_chunks, str) else raw_chunks
+            if owl_fast is not None:
+                raw_chunks = owl_fast.parse_ontology_chunks(ttl_path.read_text(), "turtle")
+                self.owl_chunks = json.loads(raw_chunks) if isinstance(raw_chunks, str) else raw_chunks
+            else:
+                self.owl_chunks = []
         else:
             self.triples = []
             self.owl_chunks = []

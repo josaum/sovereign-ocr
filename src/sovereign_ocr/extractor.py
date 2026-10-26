@@ -26,7 +26,10 @@ import re
 from datetime import datetime
 from typing import Any
 
-import gliner_fast_py
+try:
+    import gliner_fast_py
+except ImportError:
+    gliner_fast_py = None  # type: ignore[assignment]
 
 from sovereign_ocr.ingest import IngestedBundle
 from sovereign_ocr.schemas import (

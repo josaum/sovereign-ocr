@@ -34,10 +34,14 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import layout_fast
 import numpy as np
 import pdf_fast
 from PIL import Image, ImageOps
+
+try:
+    import layout_fast
+except ImportError:
+    layout_fast = None  # type: ignore[assignment]
 
 DEFAULT_DOCUMENT_VOCABULARY = {
     # Commercial / Accounts Payable (EN)

@@ -1,0 +1,135 @@
+{
+  "manifest_version": "0.4",
+  "name": "sovereign-ocr",
+  "display_name": "Sovereign-OCR — Neuro-Symbolic Document Intelligence & SAP S/4HANA Engine",
+  "version": "1.0.0",
+  "description": "100% air-gapped OCR, algebraic PDF CMap self-healing, 5-step geometry/DPI preprocessing, KYC/fiscal validation (CPF/CNPJ/IMEI/NF-e), active ontology grounding, and SAP S/4HANA BAPI/BPMN/DMN automation.",
+  "long_description": "Official Sovereign-OCR extension for Claude Desktop (DOI: 10.5281/zenodo.23589075). Combines zero-copy Rust format parsers (pdf_fast, email_fast, docx_fast, xlsx_fast), algebraic PDF Type0/Identity-H CMap shift recovery, 5-step geometry & DPI-aware visual preprocessing, KYC/fiscal checksum verification, O-Laya OWL 2 RL active ontology grounding, deterministic RDF 1.2 quad provenance receipts, and SAP S/4HANA BAPI_ACC_DOCUMENT_POST / OData / BPMN 2.0 / DMN 1.3 integration. Operates 100% locally and offline with zero cloud token egress.",
+  "author": {
+    "name": "Dionisio Chiuratto Agourakis",
+    "email": "dionisio.ca@gmail.com",
+    "url": "https://doi.org/10.5281/zenodo.23589075"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://doi.org/10.5281/zenodo.23589075"
+  },
+  "documentation": "https://zenodo.org/records/23589075",
+  "icon": "icon.png",
+  "license": "Apache-2.0",
+  "keywords": [
+    "ocr",
+    "document-intelligence",
+    "pdf",
+    "sap-s4hana",
+    "bpmn",
+    "dmn",
+    "ontology",
+    "documentoscopia",
+    "air-gapped"
+  ],
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.10"
+    }
+  },
+  "server": {
+    "type": "python",
+    "entry_point": "bin/run-sovereign-ocr",
+    "mcp_config": {
+      "command": "python3",
+      "args": [
+        "${__dirname}/bin/run-sovereign-ocr"
+      ],
+      "env": {
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "PYTHONUTF8": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "SOVEREIGN_DEFAULT_ENTITY_CODE": "${user_config.default_entity_code}",
+        "SOVEREIGN_ONTOLOGY_JSON": "${user_config.ontology_json_path}",
+        "SOVEREIGN_WORKSPACE_DIR": "${user_config.workspace_directory}"
+      }
+    }
+  },
+  "user_config": {
+    "default_entity_code": {
+      "type": "string",
+      "title": "Default SAP Company Code (BUKRS)",
+      "description": "Optional default 4-character SAP Company Code (e.g. 0010, 0040) for ontology grounding and BAPI_ACC_DOCUMENT_POST generation.",
+      "required": false,
+      "default": ""
+    },
+    "ontology_json_path": {
+      "type": "file",
+      "title": "Active Enterprise Ontology JSON (optional)",
+      "description": "Optional path to a master entity knowledge graph JSON file (vendors, payees, facility_zips) for active ontology grounding.",
+      "required": false,
+      "default": ""
+    },
+    "workspace_directory": {
+      "type": "directory",
+      "title": "Document Workspace Directory (optional)",
+      "description": "Optional default directory containing invoice packets, claim bundles, or PDFs.",
+      "required": false,
+      "default": "${DOCUMENTS}"
+    }
+  },
+  "tools": [
+    {
+      "name": "sovereign_ocr_doctor",
+      "description": "Inspect the air-gapped Sovereign-OCR runtime environment, verifying native Rust PyO3 extensions, embedded oar-ocr-cli binary, and offline GLiNER2 availability."
+    },
+    {
+      "name": "sovereign_ocr_preprocess_image",
+      "description": "Run the 5-step geometry and DPI-aware visual preprocessing pipeline (adaptive DPI, [p1..p95] contrast stretching, interior-crop 90/180/270 orientation recovery, projection-profile deskew, and Lanczos resize)."
+    },
+    {
+      "name": "sovereign_ocr_repair_cmap",
+      "description": "Detect broken PDF Type0/Identity-H ToUnicode CMap font streams and algebraically recover shifted character streams in sub-millisecond time without pixel OCR."
+    },
+    {
+      "name": "sovereign_ocr_validate_kyc_fiscal",
+      "description": "Classify document role (CLAIM_NOTICE_AVISO, POLICE_REPORT_BO, NOTA_FISCAL, PROOF_OF_ADDRESS, IDENTITY_DOCUMENT, PRIMARY_INVOICE) and validate CPF, CNPJ, 15-digit IMEI (Luhn), and 44-digit NF-e access keys."
+    },
+    {
+      "name": "sovereign_ocr_extract_bundle",
+      "description": "Unpack a document file or multi-attachment bundle (.pdf, .msg, .eml, .docx, .xlsx, or image), run self-healing OCR and ontology grounding, seal an RDF 1.2 quad_fast receipt, and emit an SAP S/4HANA BAPI_ACC_DOCUMENT_POST payload."
+    },
+    {
+      "name": "sovereign_ocr_build_sap_bapi",
+      "description": "Transform a governed extraction record into an SAP S/4HANA BAPI_ACC_DOCUMENT_POST payload, API_SUPPLIERINVOICE_PROCESS_SRV OData payload, and BPMN 2.0 gateway routing decision."
+    },
+    {
+      "name": "sovereign_ocr_export_bpmn_dmn",
+      "description": "Export OASIS BPMN 2.0 XML and OMG DMN 1.3 XML (hitPolicy=COLLECT) for direct import into SAP Signavio Process Manager and SAP Build Process Automation (SBPA)."
+    }
+  ],
+  "tools_generated": true,
+  "prompts": [
+    {
+      "name": "audit_sap_ap_bundle",
+      "description": "Audit a commercial invoice packet or AP bundle, verify zero-balance SAP S/4HANA BAPI_ACC_DOCUMENT_POST accounting lines, and check BPMN 2.0 exception rules.",
+      "arguments": [
+        "target_path",
+        "entity_code"
+      ],
+      "text": "Call `sovereign_ocr_extract_bundle` with `target_path=\"${arguments.target_path}\"` and `entity_code=\"${arguments.entity_code}\"` (`include_sap_bapi=true`). Verify whether `sap_s4hana_payload.bpmn_routing.is_auto_postable` is true, confirm `BAPI_ACC_DOCUMENT_POST.zero_balance_verified`, and report the `quad_receipt_hash`."
+    },
+    {
+      "name": "triage_documentoscopia_claim",
+      "description": "Triage a multi-document KYC or insurance claim dossier (Aviso de Sinistro, Boletim de Ocorrencia, DANFE/NF-e, Comprovante de Residencia, RG/CNH) with mathematical check-digit verification.",
+      "arguments": [
+        "claim_dir"
+      ],
+      "text": "Call `sovereign_ocr_extract_bundle` on `target_path=\"${arguments.claim_dir}\"` and inspect `documentoscopia_facts` (`cpfs`, `cnpjs`, `imeis`, `nfe_access_keys`, `ceps`, `rgs`, `occurrence_type`). Verify cross-document identity consistency and report any missing or corrupted artifacts."
+    }
+  ],
+  "prompts_generated": true
+}

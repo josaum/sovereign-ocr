@@ -656,3 +656,24 @@ def test_mcp_server_latest_spec_stdio_and_streamable_http(tmp_path: Path) -> Non
     assert (tmp_path / "mcp_schemas" / "sovereign_ocr_extract_bundle.json").is_file()
     assert (tmp_path / "mcp_schemas" / "instructions.md").is_file()
 
+
+def test_claude_desktop_mcpb_manifest_and_launcher() -> None:
+    import json
+
+    repo_root = Path(__file__).resolve().parents[1]
+    mcpb_dir = repo_root / "packaging" / "mcpb"
+    manifest_file = mcpb_dir / "manifest.json"
+    assert manifest_file.is_file()
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    assert manifest["manifest_version"] == "0.4"
+    assert manifest["name"] == "sovereign-ocr"
+    assert set(manifest["compatibility"]["platforms"]) == {"darwin", "win32", "linux"}
+    assert len(manifest["tools"]) == 7
+    assert len(manifest["prompts"]) == 2
+    assert (mcpb_dir / "bin" / "run-sovereign-ocr").is_file()
+    assert (mcpb_dir / "bin" / "run-sovereign-ocr.py").is_file()
+    assert (mcpb_dir / "bin" / "run-sovereign-ocr").read_bytes() == (
+        mcpb_dir / "bin" / "run-sovereign-ocr.py"
+    ).read_bytes()
+
+
