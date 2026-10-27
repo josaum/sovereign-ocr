@@ -106,10 +106,12 @@ def get_mcp_tools() -> list[dict[str, Any]]:
                 "properties": {
                     "status": {"type": "string"},
                     "version": {"type": "string"},
+                    "olaya_version": {"type": "string"},
+                    "leio_code_version": {"type": "string"},
                     "oar_ocr_bin": {"type": "string"},
                     "modules": {"type": "object", "additionalProperties": {"type": "boolean"}},
                 },
-                "required": ["status", "version", "oar_ocr_bin", "modules"],
+                "required": ["status", "version", "olaya_version", "leio_code_version", "oar_ocr_bin", "modules"],
             },
             "annotations": {
                 "title": "Environment Doctor",
@@ -607,9 +609,13 @@ def execute_mcp_tool(name: str, arguments: dict[str, Any] | None = None) -> dict
             "gliner_fast_py",
             "gliner2",
         ]
+        import olaya as _olaya_mod
+
         structured = {
             "status": "ok",
             "version": __version__,
+            "olaya_version": getattr(_olaya_mod, "__version__", "0.8.0"),
+            "leio_code_version": "2.6.6",
             "oar_ocr_bin": resolve_oar_ocr_bin(),
             "modules": {m: importlib.util.find_spec(m) is not None for m in modules},
         }

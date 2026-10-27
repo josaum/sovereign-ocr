@@ -582,6 +582,8 @@ def test_mcp_server_latest_spec_stdio_and_streamable_http(tmp_path: Path) -> Non
     assert doc_call is not None
     assert doc_call["result"]["isError"] is False
     assert doc_call["result"]["structuredContent"]["status"] == "ok"
+    assert doc_call["result"]["structuredContent"]["olaya_version"] == "0.8.0"
+    assert doc_call["result"]["structuredContent"]["leio_code_version"] == "2.6.6"
     assert doc_call["result"]["structuredContent"]["modules"]["pdf_fast"] is True
 
     cmap_call = dispatcher.handle_rpc(

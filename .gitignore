@@ -22,6 +22,10 @@ wheels/
 venv/
 .pytest_cache/
 .ruff_cache/
+.leio-code/
 .DS_Store
 output/
 tmp/
+
+# leio-code local index and sidecars
+.leio-code/

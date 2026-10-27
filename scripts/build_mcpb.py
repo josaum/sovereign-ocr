@@ -50,7 +50,7 @@ CORE_PARSERS = [
     "docx-fast==0.2.5",
     "xlsx-fast==0.2.5",
     "ontology-fast==0.1.0",
-    "leio-decision==0.7.0",
+    "leio-decision==0.8.0",
 ]
 
 PLATFORMS: dict[str, dict[str, Any]] = {

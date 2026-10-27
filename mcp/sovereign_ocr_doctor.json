@@ -24,6 +24,12 @@
       "version": {
         "type": "string"
       },
+      "olaya_version": {
+        "type": "string"
+      },
+      "leio_code_version": {
+        "type": "string"
+      },
       "oar_ocr_bin": {
         "type": "string"
       },
@@ -37,6 +43,8 @@
     "required": [
       "status",
       "version",
+      "olaya_version",
+      "leio_code_version",
       "oar_ocr_bin",
       "modules"
     ]

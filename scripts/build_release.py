@@ -31,6 +31,10 @@ BUNDLED_WHEEL_PREFIXES = (
     "docx_fast-",
     "xlsx_fast-",
     "layout_fast-",
+    "ontology_fast-",
+    "owl_fast-",
+    "align_fast-",
+    "leio_decision-",
     "quad_fast-",
     "gliner_fast-",
 )
