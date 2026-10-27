@@ -193,6 +193,20 @@ def repair_shifted_cmap_text(
     return best_text, best_delta
 
 
+_GENERAL_PROSE_VOCABULARY = {
+    "the", "and", "for", "with", "that", "this", "are", "was", "were", "which",
+    "have", "has", "had", "not", "all", "can", "also", "into", "more", "other",
+    "such", "than", "between", "where", "when", "under", "over", "after", "before",
+    "during", "within", "without", "through", "study", "system", "data", "model",
+    "results", "method", "analysis", "research", "university", "college", "department",
+    "journal", "article", "published", "copyright", "theorem", "lemma", "proof",
+    "equation", "matrix", "function", "section", "figure", "table", "chapter",
+    "volume", "del", "las", "los", "por", "para", "con", "una", "que", "como",
+    "este", "esta", "sobre", "entre", "der", "die", "das", "und", "von", "mit",
+    "des", "les", "dans", "pour", "avec", "sur",
+}
+
+
 def is_corrupted_or_scanned_pdf_page(
     page_txt: str,
     page_runs: list[dict[str, Any]],
@@ -201,7 +215,7 @@ def is_corrupted_or_scanned_pdf_page(
     """
     Detect whether a PDF page is either a scanned image (<80 chars) OR has a
     corrupted/shifted ToUnicode CMap font table (producing NUL bytes, control chars,
-    high cmap_fallback_chars, or <2 recognizable domain vocabulary words).
+    high cmap_fallback_chars, or <2 recognizable domain/prose vocabulary words).
     """
     stripped = page_txt.strip()
     if len(stripped) < 80:
@@ -215,7 +229,11 @@ def is_corrupted_or_scanned_pdf_page(
     total_chars = max(len(stripped), 1)
     if fallback_chars >= 4 and fallback_chars * 5 >= total_chars:
         return True
-    vocab = vocabulary if vocabulary is not None else DEFAULT_DOCUMENT_VOCABULARY
+    vocab = (
+        vocabulary
+        if vocabulary is not None
+        else (DEFAULT_DOCUMENT_VOCABULARY | _GENERAL_PROSE_VOCABULARY)
+    )
     words = set(re.findall(r"[a-z]{3,}", stripped.lower()))
     if len(words.intersection(vocab)) < 2:
         return True
@@ -623,7 +641,48 @@ def render_pdf_page_png(
         return raw_png
 
 
-def reconstruct_text_from_ocr_runs(runs: list[dict[str, Any]]) -> str:
+_WIDE_CHARS = set("mwMW@%&QOGD")
+_NARROW_CHARS = set("ilI1!.,:;'|jft()[]{}")
+_LIGATURES = {
+    "\ufb00": "ff",
+    "\ufb01": "fi",
+    "\ufb02": "fl",
+    "\ufb03": "ffi",
+    "\ufb04": "ffl",
+    "\u00a0": " ",
+}
+
+
+def _clean_ligatures(text: str) -> str:
+    for k, v in _LIGATURES.items():
+        text = text.replace(k, v)
+    return text
+
+
+def _proportional_text_width(text: str, fs: float) -> float:
+    if not text:
+        return 0.0
+    total = 0.0
+    for ch in text:
+        if ch in _WIDE_CHARS:
+            total += 0.78 * fs
+        elif ch in _NARROW_CHARS:
+            total += 0.28 * fs
+        elif ch == " ":
+            total += 0.28 * fs
+        elif ch.isupper():
+            total += 0.62 * fs
+        else:
+            total += 0.46 * fs
+    return max(total, 0.25 * fs)
+
+
+def reconstruct_text_from_ocr_runs(
+    runs: list[dict[str, Any]],
+    engine: str = "routed",
+    multi_column: bool | None = None,
+    strip_headers_footers: bool = False,
+) -> str:
     """
     Reconstruct clean multi-column / tabular reading order from `oar-ocr-cli`
     bounding-box runs using `layout_fast.order_blocks` and vertical line clustering.
@@ -635,6 +694,19 @@ def reconstruct_text_from_ocr_runs(runs: list[dict[str, Any]]) -> str:
     if not valid_runs:
         return ""
 
+    if strip_headers_footers and len(valid_runs) >= 6:
+        max_y = max(float(r.get("px_y", 0.0)) + float(r.get("px_height", 20.0)) for r in valid_runs)
+        if max_y > 200.0:
+            filtered = [
+                r
+                for r in valid_runs
+                if 0.125 * max_y <= float(r.get("px_y", 0.0)) <= 0.895 * max_y
+            ]
+            if filtered:
+                valid_runs = filtered
+
+    use_multi_column = (len(valid_runs) >= 35) if multi_column is None else bool(multi_column)
+
     sorted_y = sorted(valid_runs, key=lambda r: (float(r.get("px_y", 0.0)), float(r.get("px_x", 0.0))))
     lines: list[list[dict[str, Any]]] = []
     curr_line: list[dict[str, Any]] = []
@@ -644,7 +716,7 @@ def reconstruct_text_from_ocr_runs(runs: list[dict[str, Any]]) -> str:
     for r in sorted_y:
         ry = float(r.get("px_y", 0.0))
         rh = max(float(r.get("px_height", 20.0)), 8.0)
-        if curr_y is None or abs(ry - curr_y) <= 0.55 * max(curr_h, rh):
+        if curr_y is None or abs(ry - curr_y) <= 0.52 * max(curr_h, rh):
             curr_line.append(r)
             if curr_y is None:
                 curr_y = ry
@@ -663,29 +735,296 @@ def reconstruct_text_from_ocr_runs(runs: list[dict[str, Any]]) -> str:
         curr_line.sort(key=lambda x: float(x.get("px_x", 0.0)))
         lines.append(curr_line)
 
-    blocks = []
-    for idx, line_runs in enumerate(lines):
-        x0 = min(float(x.get("px_x", 0.0)) for x in line_runs)
-        y0 = min(float(x.get("px_y", 0.0)) for x in line_runs)
-        x1 = max(float(x.get("px_x", 0.0)) + float(x.get("px_width", 10.0)) for x in line_runs)
-        y1 = max(float(x.get("px_y", 0.0)) + float(x.get("px_height", 10.0)) for x in line_runs)
-        line_txt = "  ".join(x["text"].strip() for x in line_runs)
-        blocks.append({
-            "id": idx,
-            "bbox": [x0, y0, x1, y1],
-            "text": line_txt,
-            "source": "ocr",
-            "kind": "text",
-        })
-
-    try:
-        _ = layout_fast.order_blocks(blocks, engine="routed")
-    except Exception:
-        pass
+    blocks: list[dict[str, Any]] = []
+    if not use_multi_column:
+        for idx, line_runs in enumerate(lines):
+            x0 = min(float(x.get("px_x", 0.0)) for x in line_runs)
+            y0 = min(float(x.get("px_y", 0.0)) for x in line_runs)
+            x1 = max(float(x.get("px_x", 0.0)) + float(x.get("px_width", 10.0)) for x in line_runs)
+            y1 = max(float(x.get("px_y", 0.0)) + float(x.get("px_height", 10.0)) for x in line_runs)
+            line_txt = "  ".join(_clean_ligatures(x["text"].strip()) for x in line_runs)
+            blocks.append({
+                "id": idx,
+                "bbox": [x0, y0, x1, y1],
+                "font_size": max(y1 - y0, 8.0),
+                "font_id": 0,
+                "text": line_txt,
+                "source": "ocr",
+                "kind": "text",
+            })
+    else:
+        for line_runs in lines:
+            seg: list[dict[str, Any]] = []
+            seg_x1: float | None = None
+            seg_h: float = 20.0
+            for r in line_runs:
+                rx = float(r.get("px_x", 0.0))
+                rw = max(float(r.get("px_width", 10.0)), 4.0)
+                rh = max(float(r.get("px_height", 20.0)), 8.0)
+                if seg_x1 is not None and (rx - seg_x1) > 1.2 * max(seg_h, rh):
+                    x0 = min(float(x.get("px_x", 0.0)) for x in seg)
+                    y0 = min(float(x.get("px_y", 0.0)) for x in seg)
+                    x1 = max(float(x.get("px_x", 0.0)) + float(x.get("px_width", 10.0)) for x in seg)
+                    y1 = max(float(x.get("px_y", 0.0)) + float(x.get("px_height", 10.0)) for x in seg)
+                    blocks.append({
+                        "id": len(blocks),
+                        "bbox": [x0, y0, x1, y1],
+                        "font_size": max(y1 - y0, 8.0),
+                        "font_id": 0,
+                        "text": " ".join(_clean_ligatures(x["text"].strip()) for x in seg),
+                        "source": "ocr",
+                        "kind": "text",
+                    })
+                    seg = [r]
+                    seg_x1 = rx + rw
+                    seg_h = rh
+                else:
+                    seg.append(r)
+                    seg_x1 = max(seg_x1 or rx, rx + rw)
+                    seg_h = max(seg_h, rh)
+            if seg:
+                x0 = min(float(x.get("px_x", 0.0)) for x in seg)
+                y0 = min(float(x.get("px_y", 0.0)) for x in seg)
+                x1 = max(float(x.get("px_x", 0.0)) + float(x.get("px_width", 10.0)) for x in seg)
+                y1 = max(float(x.get("px_y", 0.0)) + float(x.get("px_height", 10.0)) for x in seg)
+                blocks.append({
+                    "id": len(blocks),
+                    "bbox": [x0, y0, x1, y1],
+                    "font_size": max(y1 - y0, 8.0),
+                    "font_id": 0,
+                    "text": " ".join(_clean_ligatures(x["text"].strip()) for x in seg),
+                    "source": "ocr",
+                    "kind": "text",
+                })
+        if layout_fast is not None and blocks:
+            try:
+                order = layout_fast.order_blocks(blocks, engine=engine)
+                if isinstance(order, list) and len(order) == len(blocks):
+                    blocks = [blocks[i] for i in order]
+            except Exception:
+                pass
 
     joined = "\n".join(b["text"] for b in blocks)
+    if use_multi_column:
+        joined = re.sub(r"-\s*\n\s*([a-zA-Z])", r"\1", joined)
     repaired, _ = repair_shifted_cmap_text(joined)
     return repaired
+
+
+def _join_pdf_segment_runs(seg_runs: list[dict[str, Any]], has_explicit_space: bool) -> str:
+    parts: list[str] = []
+    prev_end: float | None = None
+    prev_fs: float = 9.0
+    for r in seg_runs:
+        t = _clean_ligatures(r.get("text") or "")
+        if not t:
+            continue
+        rx = float(r.get("_x", 0.0))
+        rfs = float(r.get("_fs", 9.0))
+        adj_w = float(r.get("_w", 4.0))
+        if not parts:
+            parts.append(t)
+        else:
+            gap = rx - (prev_end or rx)
+            thresh = 0.28 * max(prev_fs, rfs) if has_explicit_space else 0.14 * max(prev_fs, rfs)
+            if gap > thresh and not parts[-1].endswith(" ") and not t.startswith(" "):
+                parts.append(" " + t)
+            else:
+                parts.append(t)
+        prev_end = rx + adj_w
+        prev_fs = rfs
+    return re.sub(r"\s+", " ", "".join(parts))
+
+
+def extract_ordered_pdf_page_text(
+    pdf_path: Path,
+    page_index: int = 0,
+    engine: str = "recursive",
+    strip_headers_footers: bool = False,
+) -> tuple[str, list[dict[str, Any]]]:
+    """
+    Extract native text and positioned semantic runs for a single PDF page (`page_index`),
+    routing single-character kerned multi-column streams through proportional glyph width
+    clustering + `layout_fast.order_blocks`, and optionally stripping running headers/footers.
+    """
+    resolved = pdf_path.resolve()
+    page_runs: list[dict[str, Any]] = []
+    page_h, page_w = 792.0, 612.0
+
+    try:
+        scanner = pdf_fast.PdfScanner(str(resolved))
+        dims = json.loads(scanner.page_dimensions_json())
+        for d in dims:
+            if int(d.get("page_index", 0)) == page_index:
+                page_h = float(d.get("height", 792.0)) or 792.0
+                page_w = float(d.get("width", 612.0)) or 612.0
+                break
+        all_runs = json.loads(scanner.semantic_runs_json())
+        if isinstance(all_runs, list):
+            page_runs = [
+                r for r in all_runs if int(r.get("page_index", r.get("page", 1) - 1)) == page_index
+            ]
+    except Exception:
+        page_runs = []
+
+    raw_text = ""
+    avg_len = sum(len(r.get("text") or "") for r in page_runs) / max(len(page_runs), 1)
+    if len(page_runs) > 400 and avg_len < 2.2 and layout_fast is not None:
+        work_runs: list[dict[str, Any]] = []
+        for r in page_runs:
+            raw_fs = float(r.get("font_size") or 0.0)
+            txt = _clean_ligatures(r.get("text") or "")
+            eff_fs = 9.0 if raw_fs <= 3.0 else raw_fs
+            x = float(r.get("x") or 0.0)
+            y = float(r.get("y") or 0.0)
+            if strip_headers_footers and (
+                y < page_h * 0.13
+                or (y + min(eff_fs, 14.0)) > page_h * 0.85
+                or x < page_w * 0.055
+                or x > page_w * 0.925
+            ):
+                continue
+            rc = dict(r)
+            rc["_x"] = x
+            rc["_y"] = y
+            rc["_fs"] = eff_fs
+            rc["_w"] = _proportional_text_width(txt, eff_fs)
+            work_runs.append(rc)
+
+        if work_runs:
+            by_y = sorted(work_runs, key=lambda r: -r["_y"])
+            rows: list[list[dict[str, Any]]] = []
+            curr_row: list[dict[str, Any]] = []
+            curr_y: float | None = None
+            curr_fs: float = 9.0
+            for r in by_y:
+                ry, rfs = r["_y"], r["_fs"]
+                if curr_y is None or abs(ry - curr_y) <= 0.42 * max(curr_fs, rfs):
+                    curr_row.append(r)
+                    curr_y = ry if curr_y is None else (0.85 * curr_y + 0.15 * ry)
+                    curr_fs = max(curr_fs, rfs)
+                else:
+                    rows.append(curr_row)
+                    curr_row, curr_y, curr_fs = [r], ry, rfs
+            if curr_row:
+                rows.append(curr_row)
+
+            line_blocks: list[dict[str, Any]] = []
+            line_texts: list[str] = []
+            for row in rows:
+                row.sort(key=lambda r: r["_x"])
+                has_explicit_space = any((r.get("text") == " ") for r in row)
+                seg_runs: list[dict[str, Any]] = []
+                seg_x0: float | None = None
+                seg_x1: float | None = None
+                seg_y: float = row[0]["_y"]
+                seg_fs: float = row[0]["_fs"]
+                for r in row:
+                    rx, rw, rfs = r["_x"], r["_w"], r["_fs"]
+                    if seg_x1 is not None and (rx - seg_x1) > max(1.35 * max(seg_fs, rfs), 10.0):
+                        txt = _join_pdf_segment_runs(seg_runs, has_explicit_space)
+                        if txt.strip():
+                            line_blocks.append({
+                                "id": len(line_blocks),
+                                "bbox": [seg_x0, seg_y, seg_x1, seg_y + seg_fs],
+                                "font_size": seg_fs,
+                                "font_id": 0,
+                                "source": "pdf",
+                            })
+                            line_texts.append(txt.strip())
+                        seg_runs, seg_x0, seg_x1, seg_y, seg_fs = [r], rx, rx + rw, r["_y"], rfs
+                    else:
+                        seg_runs.append(r)
+                        if seg_x0 is None:
+                            seg_x0 = rx
+                        seg_x1 = max(seg_x1 or rx, rx + rw)
+                        seg_fs = max(seg_fs, rfs)
+                if seg_runs:
+                    txt = _join_pdf_segment_runs(seg_runs, has_explicit_space)
+                    if txt.strip():
+                        line_blocks.append({
+                            "id": len(line_blocks),
+                            "bbox": [seg_x0, seg_y, seg_x1, seg_y + seg_fs],
+                            "font_size": seg_fs,
+                            "font_id": 0,
+                            "source": "pdf",
+                        })
+                        line_texts.append(txt.strip())
+
+            if line_blocks:
+                try:
+                    order = layout_fast.order_blocks(line_blocks, engine=engine)
+                    if isinstance(order, list) and len(order) == len(line_blocks):
+                        line_texts = [line_texts[i] for i in order]
+                except Exception:
+                    pass
+                raw_text = "\n".join(line_texts)
+
+    if not raw_text:
+        try:
+            full_doc_text = pdf_fast.parse_pdf_text(str(resolved))
+            pages_split = full_doc_text.split("\f")
+            raw_text = pages_split[page_index] if page_index < len(pages_split) else full_doc_text
+        except Exception:
+            if page_runs:
+                raw_text = " ".join((r.get("text") or "").strip() for r in page_runs if (r.get("text") or "").strip())
+
+        if strip_headers_footers and raw_text and page_runs:
+            margin_runs: list[str] = []
+            body_runs: list[str] = []
+            for r in page_runs:
+                x = float(r.get("x") or 0.0)
+                y = float(r.get("y") or 0.0)
+                fs = float(r.get("font_size") or 8.0)
+                t = (r.get("text") or "").strip()
+                if not t:
+                    continue
+                if (
+                    y < page_h * 0.13
+                    or (y + min(fs, 14.0)) > page_h * 0.85
+                    or x < page_w * 0.055
+                    or x > page_w * 0.925
+                ):
+                    margin_runs.append(t)
+                else:
+                    body_runs.append(t)
+            if body_runs:
+                lines_list = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+                margin_blob = _clean_ligatures(" ".join(margin_runs)).lower()
+                body_blob = _clean_ligatures(" ".join(body_runs)).lower()
+                kept: list[str] = []
+                for idx, ln in enumerate(lines_list):
+                    ln_low = _clean_ligatures(ln).lower()
+                    if not ln_low:
+                        continue
+                    if (idx < 4 or idx >= len(lines_list) - 4) and (
+                        len(ln_low) <= 6 or re.match(r"^(?:page\s*)?\d+(?:\s*of\s*\d+)?$", ln_low)
+                    ):
+                        continue
+                    if ln_low in margin_blob and (
+                        ln_low not in body_blob or idx < 5 or idx >= len(lines_list) - 5
+                    ):
+                        continue
+                    kept.append(ln)
+                if kept:
+                    raw_text = "\n".join(kept)
+
+    raw_text = _clean_ligatures(raw_text)
+    raw_text = re.sub(r"-\s*\n\s*([a-zA-Z])", r"\1", raw_text)
+    repaired, _ = repair_shifted_cmap_text(raw_text)
+
+    # If the page has substantial readable prose (>=120 chars and >=4 vocabulary words)
+    # and only minor math/symbol control codes (<5% of text), strip stray control chars
+    # so LaTeX/academic pages with embedded math symbol fonts are not misflagged as corrupted scans.
+    if len(repaired) >= 120:
+        ctrl_n = sum(1 for c in repaired if ord(c) < 32 and c not in ("\n", "\r", "\t"))
+        if ctrl_n * 20 < len(repaired):
+            words_found = set(re.findall(r"[a-z]{3,}", repaired.lower()))
+            if len(words_found.intersection(DEFAULT_DOCUMENT_VOCABULARY | _GENERAL_PROSE_VOCABULARY)) >= 4:
+                repaired = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", repaired)
+                page_runs = [{"cmap_fallback_chars": 0}]
+
+    return repaired, page_runs
 
 
 def resolve_oar_ocr_bin(explicit_bin: str | None = None) -> str:
@@ -693,7 +1032,7 @@ def resolve_oar_ocr_bin(explicit_bin: str | None = None) -> str:
     Resolve the `oar-ocr-cli` executable path:
     1. Explicit `explicit_bin` argument
     2. `SOVEREIGN_OAR_OCR_BIN` environment variable
-    3. Bundled `sovereign_ocr/bin/oar-ocr-cli` inside the fat wheel (ensuring +x mode)
+    3. Bundled `sovereign_ocr/bin/oar-ocr-cli` or repo `bin/oar-ocr-cli`
     4. System `PATH` fallback (`"oar-ocr-cli"`)
     """
     if explicit_bin:
@@ -701,15 +1040,42 @@ def resolve_oar_ocr_bin(explicit_bin: str | None = None) -> str:
     env_bin = os.environ.get("SOVEREIGN_OAR_OCR_BIN")
     if env_bin:
         return env_bin
-    bundled = Path(__file__).resolve().parent / "bin" / "oar-ocr-cli"
-    if bundled.is_file():
-        try:
-            if not os.access(bundled, os.X_OK):
-                bundled.chmod(bundled.stat().st_mode | 0o755)
-        except Exception:
-            pass
-        return str(bundled)
+    candidates = [
+        Path(__file__).resolve().parent / "bin" / "oar-ocr-cli",
+        Path(__file__).resolve().parents[2] / "bin" / "oar-ocr-cli",
+    ]
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                if not os.access(cand, os.X_OK):
+                    cand.chmod(cand.stat().st_mode | 0o755)
+            except Exception:
+                pass
+            return str(cand)
     return "oar-ocr-cli"
+
+
+def resolve_oar_models_dir(explicit_dir: str | None = None) -> str:
+    """
+    Resolve the local ONNX OCR models directory:
+    1. Explicit `explicit_dir` argument
+    2. `MYCELIA_MODELS_DIR` environment variable
+    3. Bundled or repository `models/ocr` directory
+    """
+    if explicit_dir:
+        return explicit_dir
+    env_dir = os.environ.get("MYCELIA_MODELS_DIR")
+    if env_dir:
+        return env_dir
+    candidates = [
+        Path(__file__).resolve().parent / "models" / "ocr",
+        Path(__file__).resolve().parents[2] / "models" / "ocr",
+        Path.cwd() / "models" / "ocr",
+    ]
+    for cand in candidates:
+        if cand.is_dir():
+            return str(cand.resolve())
+    return ""
 
 
 def run_batch_ocr(
@@ -726,7 +1092,7 @@ def run_batch_ocr(
     if not jobs:
         return {}
     resolved_bin = resolve_oar_ocr_bin(oar_bin)
-    resolved_models = models_dir or os.environ.get("MYCELIA_MODELS_DIR", "")
+    resolved_models = resolve_oar_models_dir(models_dir)
     work_dir = cache_dir or Path("/tmp/sovereign_ocr_manifests")
     work_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()

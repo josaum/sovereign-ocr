@@ -28,6 +28,7 @@ except ImportError:
     pdf_fast_write = None  # type: ignore[assignment]
 
 from sovereign_ocr.ocr_layout import (
+    extract_ordered_pdf_page_text,
     is_corrupted_or_scanned_pdf_page,
     preprocess_document_image_bytes,
     reconstruct_text_from_ocr_runs,
@@ -320,41 +321,51 @@ def _extract_pdf_pages_with_self_healing_ocr(
     pdf_path: Path,
     oar_bin: str | None = None,
     models_dir: str | None = None,
+    strip_headers_footers: bool = False,
 ) -> tuple[str, int, bool]:
     """
     Extract native text from a PDF via `pdf_fast`, repair any shifted Identity-H / Type0
     CMap ASCII offsets (`repair_shifted_cmap_text`), and automatically route any scanned or
     font-corrupted pages through 5-step visual preprocessing (`render_pdf_page_png`) + `oar-ocr-cli`.
     """
+    resolved = pdf_path.resolve()
     pages_text: list[str] = []
     pages_runs: list[list[dict[str, Any]]] = []
 
+    pcount = 0
     try:
-        scanner = pdf_fast.PdfScanner(str(pdf_path))
+        scanner = pdf_fast.PdfScanner(str(resolved))
         pc_attr = getattr(scanner, "page_count", 0)
         pcount = int(pc_attr() if callable(pc_attr) else pc_attr)
-        for i in range(pcount):
-            pages_text.append(scanner.page_text(i) or "")
-            pages_runs.append([])
     except Exception:
+        pcount = 0
+
+    if pcount > 0:
+        for idx in range(pcount):
+            ptxt, pruns = extract_ordered_pdf_page_text(
+                resolved,
+                page_index=idx,
+                strip_headers_footers=strip_headers_footers,
+            )
+            pages_text.append(ptxt)
+            pages_runs.append(pruns)
+    else:
         try:
-            parsed_json = json.loads(pdf_fast.parse_pdf_json(str(pdf_path)))
-            for p_obj in parsed_json.get("pages") or []:
-                pages_text.append(p_obj.get("text") or "")
+            full_txt = pdf_fast.parse_pdf_text(str(resolved))
+            for p_str in full_txt.split("\f"):
+                repaired, _ = repair_shifted_cmap_text(p_str)
+                pages_text.append(repaired)
                 pages_runs.append([])
         except Exception:
-            pages_text = []
-            pages_runs = []
-
-    try:
-        sem_runs = json.loads(pdf_fast.parse_pdf_semantic_runs_json(str(pdf_path)))
-        if isinstance(sem_runs, list):
-            for r in sem_runs:
-                pno = int(r.get("page", 1)) - 1
-                if 0 <= pno < len(pages_runs):
-                    pages_runs[pno].append(r)
-    except Exception:
-        pass
+            try:
+                parsed_json = json.loads(pdf_fast.parse_pdf_json(str(resolved)))
+                for p_obj in parsed_json.get("pages") or []:
+                    repaired, _ = repair_shifted_cmap_text(p_obj.get("text") or "")
+                    pages_text.append(repaired)
+                    pages_runs.append([])
+            except Exception:
+                pages_text = [""]
+                pages_runs = [[]]
 
     page_count = max(len(pages_text), 1)
     needs_ocr_any = False
@@ -364,12 +375,11 @@ def _extract_pdf_pages_with_self_healing_ocr(
     with tempfile.TemporaryDirectory(prefix="sovereign_ocr_") as tmp_dir:
         tmp_path = Path(tmp_dir)
         for idx in range(len(pages_text)):
-            raw_ptxt = pages_text[idx] or ""
-            ptxt, _ = repair_shifted_cmap_text(raw_ptxt)
+            ptxt = pages_text[idx] or ""
             pruns = pages_runs[idx] if idx < len(pages_runs) else []
             if is_corrupted_or_scanned_pdf_page(ptxt, pruns):
                 needs_ocr_any = True
-                png_bytes = render_pdf_page_png(pdf_path, idx, preprocess=True)
+                png_bytes = render_pdf_page_png(resolved, idx, preprocess=True)
                 if png_bytes:
                     img_file = tmp_path / f"page_{idx}.png"
                     img_file.write_bytes(png_bytes)
@@ -381,7 +391,10 @@ def _extract_pdf_pages_with_self_healing_ocr(
             for job in ocr_jobs:
                 p_idx = int(job["id"])
                 runs = ocr_out.get(job["id"]) or []
-                reconstructed = reconstruct_text_from_ocr_runs(runs)
+                reconstructed = reconstruct_text_from_ocr_runs(
+                    runs,
+                    strip_headers_footers=strip_headers_footers,
+                )
                 if reconstructed.strip():
                     final_pages[p_idx] = reconstructed
 

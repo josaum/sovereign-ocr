@@ -679,3 +679,26 @@ def test_claude_desktop_mcpb_manifest_and_launcher() -> None:
     ).read_bytes()
 
 
+def test_multi_column_ocr_layout_fast_and_header_footer_stripping() -> None:
+    runs = [
+        {"text": "RUNNING HEADER 2026", "px_x": 50.0, "px_y": 20.0, "px_width": 200.0, "px_height": 16.0},
+        {"text": "Col1 Line1", "px_x": 40.0, "px_y": 200.0, "px_width": 120.0, "px_height": 18.0},
+        {"text": "Col2 Line1", "px_x": 360.0, "px_y": 200.0, "px_width": 120.0, "px_height": 18.0},
+        {"text": "Col1 Line2", "px_x": 40.0, "px_y": 230.0, "px_width": 120.0, "px_height": 18.0},
+        {"text": "Col2 Line2", "px_x": 360.0, "px_y": 230.0, "px_width": 120.0, "px_height": 18.0},
+        {"text": "Page 14", "px_x": 280.0, "px_y": 980.0, "px_width": 60.0, "px_height": 16.0},
+    ]
+    reconstructed = reconstruct_text_from_ocr_runs(
+        runs,
+        engine="routed",
+        multi_column=True,
+        strip_headers_footers=True,
+    )
+    assert "RUNNING HEADER" not in reconstructed
+    assert "Page 14" not in reconstructed
+    assert reconstructed.index("Col1 Line1") < reconstructed.index("Col1 Line2")
+    assert reconstructed.index("Col1 Line2") < reconstructed.index("Col2 Line1")
+    assert reconstructed.index("Col2 Line1") < reconstructed.index("Col2 Line2")
+
+
+

@@ -43,12 +43,15 @@ from sovereign_ocr.ocr_layout import (
     dpi_aware_resize_image,
     enhance_contrast_and_denoise,
     estimate_and_correct_skew_angle,
+    extract_ordered_pdf_page_text,
     is_corrupted_or_scanned_pdf_page,
     preprocess_document_image,
     preprocess_document_image_bytes,
     reconstruct_text_from_ocr_runs,
     render_pdf_page_png,
     repair_shifted_cmap_text,
+    resolve_oar_models_dir,
+    resolve_oar_ocr_bin,
     run_batch_ocr,
 )
 from sovereign_ocr.ontology_engine import (
