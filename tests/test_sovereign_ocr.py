@@ -87,7 +87,7 @@ def test_zero_company_specifics_and_zero_cheating_in_source() -> None:
         "ground_truth_by_docno",
     ]
     for py_file in src_dir.glob("*.py"):
-        content = py_file.read_text().lower()
+        content = py_file.read_text(encoding="utf-8").lower()
         for tok in forbidden_tokens:
             assert tok not in content, f"Forbidden token '{tok}' found in {py_file.name}"
 
@@ -134,13 +134,13 @@ def test_classify_document_unit_roles() -> None:
     assert role_rcpt == "RECEIPT_EXCEPTION"
 
 
-def test_detect_and_split_multi_invoice_pdf() -> None:
+def test_detect_and_split_multi_invoice_pdf(tmp_path: Path) -> None:
     pages = [
         "INVOICE # INV-1001\nPage 1 of 2\nSubtotal: $500.00",
         "INVOICE # INV-1001\nPage 2 of 2\nTotal Amount Due: $500.00",
         "INVOICE # INV-1002\nPage 1 of 1\nTotal Amount Due: $825.00",
     ]
-    segs = detect_and_split_multi_invoice_pdf(Path("/tmp/nonexistent.pdf"), pages, out_dir=None)
+    segs = detect_and_split_multi_invoice_pdf(tmp_path / "nonexistent.pdf", pages, out_dir=None)
     assert len(segs) == 2
     assert segs[0] == {"pages": [1, 2], "invoice_number": "INV-1001"}
     assert segs[1] == {"pages": [3], "invoice_number": "INV-1002"}
@@ -646,7 +646,10 @@ def test_mcp_server_latest_spec_stdio_and_streamable_http(tmp_path: Path) -> Non
             "jsonrpc": "2.0",
             "id": 10,
             "method": "prompts/get",
-            "params": {"name": "audit_sap_ap_bundle", "arguments": {"target_path": "/tmp/inv.pdf", "entity_code": "0010"}},
+            "params": {
+                "name": "audit_sap_ap_bundle",
+                "arguments": {"target_path": str(tmp_path / "inv.pdf"), "entity_code": "0010"},
+            },
         }
     )
     assert prm_get is not None
@@ -674,6 +677,9 @@ def test_claude_desktop_mcpb_manifest_and_launcher() -> None:
     assert len(manifest["prompts"]) == 2
     assert (mcpb_dir / "bin" / "run-sovereign-ocr").is_file()
     assert (mcpb_dir / "bin" / "run-sovereign-ocr.py").is_file()
+    assert (mcpb_dir / "bin" / "run-sovereign-ocr.cmd").is_file()
+    assert "platform_overrides" in manifest["server"]["mcp_config"]
+    assert "win32" in manifest["server"]["mcp_config"]["platform_overrides"]
     assert (mcpb_dir / "bin" / "run-sovereign-ocr").read_bytes() == (
         mcpb_dir / "bin" / "run-sovereign-ocr.py"
     ).read_bytes()
@@ -699,6 +705,80 @@ def test_multi_column_ocr_layout_fast_and_header_footer_stripping() -> None:
     assert reconstructed.index("Col1 Line1") < reconstructed.index("Col1 Line2")
     assert reconstructed.index("Col1 Line2") < reconstructed.index("Col2 Line1")
     assert reconstructed.index("Col2 Line1") < reconstructed.index("Col2 Line2")
+
+
+def test_windows_posix_compatibility_and_utf8_hygiene(monkeypatch: Any, tmp_path: Path) -> None:
+    import ast
+    import json
+    import os
+    import zipfile
+    from sovereign_ocr.mcp_server import normalize_fs_path
+    from sovereign_ocr.ocr_layout import resolve_oar_ocr_bin
+
+    repo_root = Path(__file__).resolve().parents[1]
+    src_dir = repo_root / "src" / "sovereign_ocr"
+    scripts_dir = repo_root / "scripts"
+
+    # 1. Verify every .read_text() and .write_text() call in src/ and scripts/ specifies encoding="utf-8"
+    for py_file in [*src_dir.glob("*.py"), *scripts_dir.glob("*.py")]:
+        src_code = py_file.read_text(encoding="utf-8")
+        tree = ast.parse(src_code, filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in ("read_text", "write_text"):
+                    kw_names = {kw.arg for kw in node.keywords if kw.arg is not None}
+                    has_pos_enc = (
+                        (node.func.attr == "read_text" and len(node.args) >= 1)
+                        or (node.func.attr == "write_text" and len(node.args) >= 2)
+                    )
+                    assert "encoding" in kw_names or has_pos_enc, (
+                        f"Missing explicit encoding='utf-8' on {node.func.attr}() in {py_file.name}:{node.lineno}"
+                    )
+        if py_file.parent == src_dir:
+            assert '"/tmp/' not in src_code and "'/tmp/" not in src_code, (
+                f"Hardcoded POSIX /tmp path found in {py_file.name}"
+            )
+
+    # 2. Verify Windows file:///C:/Users/... URI normalization
+    win_uri_path = normalize_fs_path("file:///C:/Users/Alice%20Smith/Documents/INV_101.pdf")
+    assert str(win_uri_path).replace("\\", "/") == "C:/Users/Alice Smith/Documents/INV_101.pdf"
+
+    win_netloc_path = normalize_fs_path("file://C:/Users/Bob/invoice.pdf")
+    assert str(win_netloc_path).replace("\\", "/") == "C:/Users/Bob/invoice.pdf"
+
+    # 3. Verify Windows oar-ocr-cli.exe resolution under simulated Windows environment
+    monkeypatch.delenv("SOVEREIGN_OAR_OCR_BIN", raising=False)
+    monkeypatch.setattr("sovereign_ocr.ocr_layout._is_windows", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    fake_pkg = tmp_path / "pkg" / "sovereign_ocr"
+    fake_bin = tmp_path / "pkg" / "runtime-bin"
+    fake_pkg.mkdir(parents=True)
+    fake_bin.mkdir(parents=True)
+    fake_exe = fake_bin / "oar-ocr-cli.exe"
+    fake_exe.write_bytes(b"MZ")
+    monkeypatch.setattr("sovereign_ocr.ocr_layout.__file__", str(fake_pkg / "ocr_layout.py"))
+    assert resolve_oar_ocr_bin() == str(fake_exe)
+
+    # 4. Verify Windows .mcpb bundle structure if built in dist/
+    win_mcpb = repo_root / "dist" / "sovereign-ocr-win32-x64.mcpb"
+    if win_mcpb.is_file():
+        with zipfile.ZipFile(win_mcpb, "r") as zf:
+            names = set(zf.namelist())
+            assert "runtime-python/python.exe" in names
+            assert "runtime-python/python312._pth" in names
+            assert "bin/run-sovereign-ocr.py" in names
+            assert "bin/run-sovereign-ocr.cmd" in names
+            pth_lines = [
+                ln.strip()
+                for ln in zf.read("runtime-python/python312._pth").decode("utf-8").splitlines()
+                if ln.strip()
+            ]
+            assert "../src" in pth_lines
+            assert "../runtime-libs" in pth_lines
+            assert "import site" in pth_lines
+            win_manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            assert win_manifest["server"]["mcp_config"]["command"] == "${__dirname}/runtime-python/python.exe"
+
 
 
 

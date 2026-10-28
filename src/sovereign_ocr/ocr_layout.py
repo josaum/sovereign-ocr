@@ -30,7 +30,9 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -1027,32 +1029,52 @@ def extract_ordered_pdf_page_text(
     return repaired, page_runs
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 def resolve_oar_ocr_bin(explicit_bin: str | None = None) -> str:
     """
-    Resolve the `oar-ocr-cli` executable path:
+    Resolve the `oar-ocr-cli` (or `oar-ocr-cli.exe` on Windows) executable path:
     1. Explicit `explicit_bin` argument
     2. `SOVEREIGN_OAR_OCR_BIN` environment variable
-    3. Bundled `sovereign_ocr/bin/oar-ocr-cli` or repo `bin/oar-ocr-cli`
-    4. System `PATH` fallback (`"oar-ocr-cli"`)
+    3. Bundled `sovereign_ocr/bin/`, `.mcpb` `runtime-bin/`, or repo `bin/`
+    4. System `PATH` fallback (`shutil.which`)
     """
     if explicit_bin:
         return explicit_bin
     env_bin = os.environ.get("SOVEREIGN_OAR_OCR_BIN")
     if env_bin:
         return env_bin
-    candidates = [
-        Path(__file__).resolve().parent / "bin" / "oar-ocr-cli",
-        Path(__file__).resolve().parents[2] / "bin" / "oar-ocr-cli",
+
+    is_win = _is_windows()
+    exe_names = ("oar-ocr-cli.exe", "oar-ocr-cli") if is_win else ("oar-ocr-cli",)
+    here = Path(__file__).resolve()
+    search_dirs = [
+        here.parent / "bin",
+        here.parents[1] / "runtime-bin",
+        here.parents[1] / "bin",
+        here.parents[2] / "runtime-bin",
+        here.parents[2] / "bin",
     ]
-    for cand in candidates:
-        if cand.is_file():
-            try:
-                if not os.access(cand, os.X_OK):
-                    cand.chmod(cand.stat().st_mode | 0o755)
-            except Exception:
-                pass
-            return str(cand)
-    return "oar-ocr-cli"
+    for d in search_dirs:
+        for exe in exe_names:
+            cand = d / exe
+            if cand.is_file():
+                if not is_win:
+                    try:
+                        if not os.access(cand, os.X_OK):
+                            cand.chmod(cand.stat().st_mode | 0o755)
+                    except Exception:
+                        pass
+                return str(cand)
+
+    for exe in exe_names:
+        found = shutil.which(exe)
+        if found:
+            return found
+
+    return "oar-ocr-cli.exe" if is_win else "oar-ocr-cli"
 
 
 def resolve_oar_models_dir(explicit_dir: str | None = None) -> str:
@@ -1060,17 +1082,20 @@ def resolve_oar_models_dir(explicit_dir: str | None = None) -> str:
     Resolve the local ONNX OCR models directory:
     1. Explicit `explicit_dir` argument
     2. `MYCELIA_MODELS_DIR` environment variable
-    3. Bundled or repository `models/ocr` directory
+    3. Bundled, `.mcpb`, or repository `models/ocr` directory
     """
     if explicit_dir:
         return explicit_dir
     env_dir = os.environ.get("MYCELIA_MODELS_DIR")
     if env_dir:
         return env_dir
+    here = Path(__file__).resolve()
     candidates = [
-        Path(__file__).resolve().parent / "models" / "ocr",
-        Path(__file__).resolve().parents[2] / "models" / "ocr",
+        here.parent / "models" / "ocr",
+        here.parents[1] / "models" / "ocr",
+        here.parents[2] / "models" / "ocr",
         Path.cwd() / "models" / "ocr",
+        Path.home() / ".cache" / "sovereign-ocr" / "models" / "ocr",
     ]
     for cand in candidates:
         if cand.is_dir():
@@ -1093,7 +1118,7 @@ def run_batch_ocr(
         return {}
     resolved_bin = resolve_oar_ocr_bin(oar_bin)
     resolved_models = resolve_oar_models_dir(models_dir)
-    work_dir = cache_dir or Path("/tmp/sovereign_ocr_manifests")
+    work_dir = cache_dir or (Path(tempfile.gettempdir()) / "sovereign_ocr_manifests")
     work_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     if resolved_models:
@@ -1112,12 +1137,14 @@ def run_batch_ocr(
     for i in range(0, len(normalized_jobs), chunk_size):
         chunk = normalized_jobs[i : i + chunk_size]
         manifest_path = work_dir / f"ocr_manifest_{i}.json"
-        manifest_path.write_text(json.dumps(chunk))
+        manifest_path.write_text(json.dumps(chunk), encoding="utf-8")
         proc = subprocess.run(
             [resolved_bin, "--batch-manifest", str(manifest_path), "basic"],
             env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if proc.returncode == 0 and proc.stdout.strip():
             batch_out = json.loads(proc.stdout)

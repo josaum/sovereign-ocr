@@ -152,7 +152,7 @@ class SovereignOntologyEngine:
             raw_triples = ontology_fast.parse_triples(ttl_bytes)
             self.triples = json.loads(raw_triples) if isinstance(raw_triples, str) else raw_triples
             if owl_fast is not None:
-                raw_chunks = owl_fast.parse_ontology_chunks(ttl_path.read_text(), "turtle")
+                raw_chunks = owl_fast.parse_ontology_chunks(ttl_path.read_text(encoding="utf-8"), "turtle")
                 self.owl_chunks = json.loads(raw_chunks) if isinstance(raw_chunks, str) else raw_chunks
             else:
                 self.owl_chunks = []
@@ -163,7 +163,7 @@ class SovereignOntologyEngine:
         # 2. Load master entity knowledge graph (from file or in-memory dict)
         kg: dict[str, Any] = {}
         if master_kg_path is not None and master_kg_path.exists():
-            kg = json.loads(master_kg_path.read_text())
+            kg = json.loads(master_kg_path.read_text(encoding="utf-8"))
         elif master_data is not None:
             kg = dict(master_data)
 
@@ -174,7 +174,7 @@ class SovereignOntologyEngine:
 
         # 3. Initialize O-Laya Ontology, OWL2RLReasoner & CandidateRouter
         if olaya_json_path is not None and olaya_json_path.exists():
-            self.olaya_ontology = olaya.Ontology.from_json(olaya_json_path.read_text())
+            self.olaya_ontology = olaya.Ontology.from_json(olaya_json_path.read_text(encoding="utf-8"))
         else:
             self.olaya_ontology = self._build_olaya_ontology_from_vendors(self.vendors)
 

@@ -47,6 +47,12 @@
       "args": [
         "${__dirname}/bin/run-sovereign-ocr"
       ],
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/bin/run-sovereign-ocr.cmd",
+          "args": []
+        }
+      },
       "env": {
         "HF_HUB_OFFLINE": "1",
         "TRANSFORMERS_OFFLINE": "1",

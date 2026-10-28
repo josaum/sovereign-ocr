@@ -24,8 +24,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import re
 import sys
 import traceback
+import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -585,6 +588,32 @@ def get_mcp_prompt_messages(name: str, arguments: dict[str, Any] | None = None) 
     raise ValueError(f"Unknown prompt name: {name}")
 
 
+def normalize_fs_path(raw_path: str | Path) -> Path:
+    """
+    Normalize a local filesystem path or `file://` URI across Windows (`win32`) and POSIX:
+    - Decodes URL-encoded `file:///C:/Users/...` or `file:///path/...` URIs.
+    - Strips the leading `/` before Windows drive letters (`"/C:/Users/..."` -> `"C:/Users/..."`).
+    - Expands environment variables (`$VAR`, `%VAR%`) and user home (`~`).
+    """
+    s = str(raw_path or "").strip()
+    if s.lower().startswith("file://"):
+        parsed = urllib.parse.urlparse(s)
+        path_part = urllib.parse.unquote(parsed.path or "")
+        if parsed.netloc and parsed.netloc.lower() != "localhost":
+            if re.match(r"^[A-Za-z]:$", parsed.netloc):
+                s = f"{parsed.netloc}{path_part}"
+            else:
+                s = f"//{parsed.netloc}{path_part}"
+        else:
+            s = path_part
+    # Strip leading slash on Windows drive letter paths like "/C:/Users/..." or "/C:\Users\..."
+    m_drive = re.match(r"^/([A-Za-z]:[/\\].*)$", s)
+    if m_drive:
+        s = m_drive.group(1)
+    s = os.path.expandvars(s)
+    return Path(s).expanduser()
+
+
 def execute_mcp_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Execute an MCP tool by name and return a spec-compliant `CallToolResult` containing
@@ -626,7 +655,7 @@ def execute_mcp_tool(name: str, arguments: dict[str, Any] | None = None) -> dict
         }
 
     if name == "sovereign_ocr_preprocess_image":
-        in_path = Path(str(args["input_path"]))
+        in_path = normalize_fs_path(str(args["input_path"]))
         out_str = args.get("output_path")
         page_idx = int(args.get("page_index") or 0)
         if in_path.suffix.upper() == ".PDF":
@@ -635,13 +664,14 @@ def execute_mcp_tool(name: str, arguments: dict[str, Any] | None = None) -> dict
         else:
             raw = in_path.read_bytes()
             proc_bytes, diag = preprocess_document_image_bytes(raw)
+        out_p: Path | None = None
         if out_str:
-            out_p = Path(str(out_str))
+            out_p = normalize_fs_path(str(out_str))
             out_p.parent.mkdir(parents=True, exist_ok=True)
             out_p.write_bytes(proc_bytes)
         structured = {
             "input_path": str(in_path),
-            "output_path": str(out_str) if out_str else None,
+            "output_path": str(out_p) if out_p else None,
             "output_bytes_len": len(proc_bytes),
             "diagnostics": diag,
         }
@@ -698,12 +728,12 @@ def execute_mcp_tool(name: str, arguments: dict[str, Any] | None = None) -> dict
         }
 
     if name == "sovereign_ocr_extract_bundle":
-        target = Path(str(args["target_path"]))
+        target = normalize_fs_path(str(args["target_path"]))
         entity_code = str(args.get("entity_code") or "")
         ont_path_str = args.get("ontology_json_path")
         include_bapi = bool(args.get("include_sap_bapi", True))
         ont = (
-            SovereignOntologyEngine(master_kg_path=Path(str(ont_path_str)))
+            SovereignOntologyEngine(master_kg_path=normalize_fs_path(str(ont_path_str)))
             if ont_path_str
             else SovereignOntologyEngine()
         )
@@ -883,6 +913,17 @@ class SovereignMcpDispatcher:
 
 def run_stdio_server() -> int:
     """Run the MCP server over standard input/output (newline-delimited JSON-RPC 2.0)."""
+    for stream_name, kwargs in (
+        ("stdin", {"encoding": "utf-8", "errors": "replace"}),
+        ("stdout", {"encoding": "utf-8", "errors": "replace", "newline": "\n"}),
+        ("stderr", {"encoding": "utf-8", "errors": "replace"}),
+    ):
+        stream = getattr(sys, stream_name, None)
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(**kwargs)
+            except Exception:
+                pass
     dispatcher = SovereignMcpDispatcher()
     for raw_line in sys.stdin:
         line = raw_line.strip()
@@ -1024,7 +1065,7 @@ def export_mcp_schema_directory(out_dir: Path) -> list[str]:
             "annotations": tool["annotations"],
         }
         fp = out_dir / f"{tool['name']}.json"
-        fp.write_text(json.dumps(schema_doc, indent=2) + "\n")
+        fp.write_text(json.dumps(schema_doc, indent=2) + "\n", encoding="utf-8")
         written.append(str(fp))
 
     inst_fp = out_dir / "instructions.md"
@@ -1036,7 +1077,7 @@ def export_mcp_schema_directory(out_dir: Path) -> list[str]:
         "- `2025-11-25` / `2025-06-18` (Streamable HTTP `/mcp`, `Tool.outputSchema`, `CallToolResult.structuredContent`, `annotations`)\n"
         "- `2025-03-26` / `2024-11-05` (JSON-RPC 2.0 over `stdio` and Streamable HTTP)\n"
     )
-    inst_fp.write_text(inst_md)
+    inst_fp.write_text(inst_md, encoding="utf-8")
     written.append(str(inst_fp))
     return written
 

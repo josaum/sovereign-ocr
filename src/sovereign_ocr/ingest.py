@@ -544,7 +544,7 @@ def unpack_document_file(
             )
         ]
 
-    txt = path.read_text(errors="ignore")
+    txt = path.read_text(encoding="utf-8", errors="ignore")
     kind = suffix.lstrip(".") or "TXT"
     role, score = classify_document_unit(fname, txt, kind)
     return [

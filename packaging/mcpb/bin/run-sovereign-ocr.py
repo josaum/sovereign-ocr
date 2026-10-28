@@ -15,47 +15,85 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 BUNDLE_ROOT = SCRIPT_DIR.parent
 
 
+def _is_windows_store_stub(path_str: str) -> bool:
+    return "windowsapps" in path_str.replace("\\", "/").lower()
+
+
 def _select_compatible_python(bundle_root: Path) -> str | None:
     import re
     import shutil
 
+    is_win = os.name == "nt"
+    if is_win:
+        bundled_win_py = bundle_root / "runtime-python" / "python.exe"
+        if bundled_win_py.is_file():
+            try:
+                if Path(sys.executable).resolve() != bundled_win_py.resolve():
+                    return str(bundled_win_py)
+            except Exception:
+                return str(bundled_win_py)
+            return None
+
     libs = bundle_root / "runtime-libs"
     if not libs.is_dir():
         return None
-    tags = {
-        int(m.group(1))
-        for p in libs.rglob("*.cpython-3*-*")
-        if (m := re.search(r"\.cpython-3(\d+)-", p.name))
-    }
+    tags: set[int] = set()
+    for p in libs.rglob("*"):
+        if p.suffix in (".so", ".pyd", ".dylib"):
+            m = re.search(r"\.(?:cpython-3|cp3)(\d+)-", p.name)
+            if m:
+                tags.add(int(m.group(1)))
+
     if not tags or (sys.version_info.major == 3 and sys.version_info.minor in tags):
         return None
+
     for minor in sorted(tags, reverse=True):
-        exe_name = f"python3.{minor}"
-        found = shutil.which(exe_name)
-        if found and Path(found).is_file():
-            return found
-        for prefix in ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"):
-            candidate = Path(prefix) / exe_name
-            if candidate.is_file():
-                return str(candidate)
-        uv_py_dir = Path.home() / ".local" / "share" / "uv" / "python"
-        if uv_py_dir.is_dir():
-            for match in sorted(uv_py_dir.glob(f"cpython-3.{minor}*"), reverse=True):
-                cand = match / "bin" / "python3"
-                if cand.is_file():
+        if is_win:
+            win_roots = [
+                Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python" / f"Python3{minor}",
+                Path(f"C:/Python3{minor}"),
+                Path(os.environ.get("ProgramFiles", "C:/Program Files")) / f"Python3{minor}",
+            ]
+            for wr in win_roots:
+                cand = wr / "python.exe"
+                if cand.is_file() and not _is_windows_store_stub(str(cand)):
                     return str(cand)
+            for env_key in ("APPDATA", "LOCALAPPDATA"):
+                base = os.environ.get(env_key)
+                if base:
+                    uv_win_dir = Path(base) / "uv" / "python"
+                    if uv_win_dir.is_dir():
+                        for match in sorted(uv_win_dir.glob(f"cpython-3.{minor}*"), reverse=True):
+                            cand = match / "python.exe"
+                            if cand.is_file():
+                                return str(cand)
+        else:
+            exe_name = f"python3.{minor}"
+            found = shutil.which(exe_name)
+            if found and Path(found).is_file() and not _is_windows_store_stub(found):
+                return found
+            for prefix in ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"):
+                candidate = Path(prefix) / exe_name
+                if candidate.is_file():
+                    return str(candidate)
+            uv_py_dir = Path.home() / ".local" / "share" / "uv" / "python"
+            if uv_py_dir.is_dir():
+                for match in sorted(uv_py_dir.glob(f"cpython-3.{minor}*"), reverse=True):
+                    cand = match / "bin" / "python3"
+                    if cand.is_file():
+                        return str(cand)
     return None
 
 
 override = os.environ.get("SOVEREIGN_OCR_PYTHON") or _select_compatible_python(BUNDLE_ROOT)
 if override and os.environ.get("SOVEREIGN_VENV_LAUNCHED") != "1" and sys.executable != override:
-    if Path(override).is_file():
+    if Path(override).is_file() and not _is_windows_store_stub(override):
         os.environ["SOVEREIGN_VENV_LAUNCHED"] = "1"
         if os.name == "nt":
             import subprocess
 
-            raise SystemExit(subprocess.run([override] + sys.argv).returncode)
-        os.execv(override, [override] + sys.argv)
+            raise SystemExit(subprocess.run([override, str(Path(__file__).resolve()), *sys.argv[1:]]).returncode)
+        os.execv(override, [override, str(Path(__file__).resolve()), *sys.argv[1:]])
 
 SRC_DIR = BUNDLE_ROOT / "src"
 LIBS_DIR = BUNDLE_ROOT / "runtime-libs"
@@ -82,6 +120,7 @@ if oar_exe.is_file():
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("PYTHONUTF8", "1")
 
 print(
     f"sovereign-ocr-mcpb launcher: python={sys.executable} ({sys.version.split()[0]}) "

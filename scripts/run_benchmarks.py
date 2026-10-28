@@ -340,7 +340,7 @@ def run_olmocr_benchmark(bench_dir: Path = DEFAULT_OLMOCR_BENCH_DIR) -> dict[str
         sp_path = bench_dir / sp
         if not sp_path.is_file():
             continue
-        rows = [json.loads(line) for line in sp_path.read_text().splitlines() if line.strip()]
+        rows = [json.loads(line) for line in sp_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         avail = [r for r in rows if (pdf_root / r["pdf"]).exists()]
         if not avail:
             continue
@@ -476,7 +476,7 @@ def run_assurant_documentoscopia_benchmark(raw_dir: Path = DEFAULT_ASSURANT_DIR)
     nfe_keys: set[str] = set()
 
     for fpath in all_88:
-        d = json.loads(fpath.read_text())
+        d = json.loads(fpath.read_text(encoding="utf-8"))
         if not isinstance(d, dict):
             continue
         total_files += 1
@@ -570,7 +570,7 @@ def main() -> int:
     print("\n[3/3] Loading Enterprise SAP S/4HANA AP Benchmark Report...")
     central_res = {}
     if DEFAULT_CENTRAL_REPORT.is_file():
-        central_res = json.loads(DEFAULT_CENTRAL_REPORT.read_text())
+        central_res = json.loads(DEFAULT_CENTRAL_REPORT.read_text(encoding="utf-8"))
         print(
             f"   -> Loaded SAP S/4HANA AP report ({central_res.get('total_evaluable_invoices', 115)} evaluable FB03 invoices, "
             f"executed in {central_res.get('execution_time_seconds')}s)"
@@ -587,7 +587,7 @@ def main() -> int:
         "assurant_documentoscopia": assurant_res,
         "enterprise_sap_ap": central_res,
     }
-    out_file.write_text(json.dumps(consolidated, indent=2) + "\n")
+    out_file.write_text(json.dumps(consolidated, indent=2) + "\n", encoding="utf-8")
     print(f"\nSaved consolidated benchmark report to: {out_file}")
     return 0
 

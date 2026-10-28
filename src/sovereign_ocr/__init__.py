@@ -33,6 +33,7 @@ from sovereign_ocr.mcp_server import (
     get_mcp_prompts,
     get_mcp_resources,
     get_mcp_tools,
+    normalize_fs_path,
     run_stdio_server,
     run_streamable_http_server,
 )

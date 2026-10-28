@@ -91,11 +91,11 @@ def cmd_extract(target_path: Path, ontology_json: Path | None = None, sap_bapi: 
 
 def cmd_export_bpmn(out_bpmn: Path, out_dmn: Path | None = None) -> int:
     out_bpmn.parent.mkdir(parents=True, exist_ok=True)
-    out_bpmn.write_text(export_sap_bpmn_xml())
+    out_bpmn.write_text(export_sap_bpmn_xml(), encoding="utf-8")
     res: dict[str, str] = {"bpmn_xml": str(out_bpmn)}
     if out_dmn is not None:
         out_dmn.parent.mkdir(parents=True, exist_ok=True)
-        out_dmn.write_text(export_sap_dmn_xml())
+        out_dmn.write_text(export_sap_dmn_xml(), encoding="utf-8")
         res["dmn_xml"] = str(out_dmn)
     print(json.dumps(res, indent=2))
     return 0

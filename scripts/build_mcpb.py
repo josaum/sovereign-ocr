@@ -152,7 +152,7 @@ def ensure_runtime_libs(platform_key: str) -> Path:
     )
     stamp = hashlib.sha256(stamp_payload.encode("utf-8")).hexdigest()
     stamp_file = libs_dir / ".build-stamp"
-    if libs_dir.is_dir() and stamp_file.is_file() and stamp_file.read_text().strip() == stamp:
+    if libs_dir.is_dir() and stamp_file.is_file() and stamp_file.read_text(encoding="utf-8").strip() == stamp:
         return libs_dir
 
     if libs_dir.exists():
@@ -211,25 +211,41 @@ def ensure_runtime_libs(platform_key: str) -> Path:
     print(f"[{platform_key}] Staging sovereign Rust abi3 wheels ({len(native_reqs)} crates)...")
     subprocess.run(cmd_native, check=True)
 
-    stamp_file.write_text(stamp + "\n")
+    stamp_file.write_text(stamp + "\n", encoding="utf-8")
     return libs_dir
+
+
+def _configure_windows_pth_files(py_dir: Path) -> None:
+    """
+    Configure `python312._pth` inside the Windows embeddable Python directory so that:
+    1. `../src` and `../runtime-libs` are natively on `sys.path` even in Windows isolated `_pth` mode.
+    2. `import site` is enabled so `.pth` files and standard site initialization work cleanly.
+    """
+    desired_entries = ["python312.zip", ".", "../src", "../runtime-libs", "import site"]
+    pth_files = list(py_dir.glob("python3*._pth")) or [py_dir / "python312._pth"]
+    for pth in pth_files:
+        existing = (
+            [ln.strip() for ln in pth.read_text(encoding="utf-8").splitlines() if ln.strip() and not ln.startswith("#")]
+            if pth.is_file()
+            else []
+        )
+        zip_entry = next((ln for ln in existing if ln.endswith(".zip")), "python312.zip")
+        final_lines = [zip_entry, ".", "../src", "../runtime-libs", "import site"]
+        pth.write_text("\n".join(final_lines) + "\n", encoding="utf-8")
 
 
 def ensure_windows_python_embed() -> Path:
     """Unpack the embeddable Windows x64 Python 3.12 runtime for zero-prerequisite Windows double-click installs."""
     py_dir = BUILD_DIR / "runtime-python-win32-x64"
-    if py_dir.is_dir() and (py_dir / "python.exe").is_file():
-        return py_dir
-    if not WIN_PYTHON_EMBED_ZIP.is_file():
-        raise FileNotFoundError(f"Missing Windows embeddable Python archive: {WIN_PYTHON_EMBED_ZIP}")
-    if py_dir.exists():
-        shutil.rmtree(py_dir)
-    py_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(WIN_PYTHON_EMBED_ZIP, "r") as zf:
-        zf.extractall(py_dir)
-    for pth in py_dir.glob("python3*._pth"):
-        lines = [ln for ln in pth.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
-        pth.write_text("\n".join(lines) + "\n")
+    if not (py_dir.is_dir() and (py_dir / "python.exe").is_file()):
+        if not WIN_PYTHON_EMBED_ZIP.is_file():
+            raise FileNotFoundError(f"Missing Windows embeddable Python archive: {WIN_PYTHON_EMBED_ZIP}")
+        if py_dir.exists():
+            shutil.rmtree(py_dir)
+        py_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(WIN_PYTHON_EMBED_ZIP, "r") as zf:
+            zf.extractall(py_dir)
+    _configure_windows_pth_files(py_dir)
     return py_dir
 
 
@@ -241,9 +257,16 @@ def materialize_manifest(platform_key: str) -> Path:
     if spec["python_embed"]:
         cfg["command"] = "${__dirname}/runtime-python/python.exe"
         cfg["args"] = ["${__dirname}/bin/run-sovereign-ocr.py"]
+        cfg["platform_overrides"] = {
+            "win32": {
+                "command": "${__dirname}/runtime-python/python.exe",
+                "args": ["${__dirname}/bin/run-sovereign-ocr.py"],
+            }
+        }
     else:
         cfg["command"] = "python3"
         cfg["args"] = ["${__dirname}/bin/run-sovereign-ocr"]
+        cfg.pop("platform_overrides", None)
     manifest["server"] = {**manifest["server"], "mcp_config": cfg}
     manifest["compatibility"] = {**manifest["compatibility"], "platforms": [spec["mcpb_platform"]]}
 
@@ -266,9 +289,11 @@ def collect_bundle_entries(platform_key: str) -> list[tuple[Path, str, int]]:
     entries.append((MCPB_DIR / "icon.png", "icon.png", 0o644))
     entries.append((MCPB_DIR / "README.md", "README.md", 0o644))
 
-    # Launcher scripts
+    # Launcher scripts (POSIX + Python + Windows .cmd)
     entries.append((MCPB_DIR / "bin" / "run-sovereign-ocr", "bin/run-sovereign-ocr", 0o755))
     entries.append((MCPB_DIR / "bin" / "run-sovereign-ocr.py", "bin/run-sovereign-ocr.py", 0o755))
+    if (MCPB_DIR / "bin" / "run-sovereign-ocr.cmd").is_file():
+        entries.append((MCPB_DIR / "bin" / "run-sovereign-ocr.cmd", "bin/run-sovereign-ocr.cmd", 0o755))
 
     # Sovereign-OCR Python package sources
     src_pkg = REPO_ROOT / "src" / "sovereign_ocr"

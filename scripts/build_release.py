@@ -93,7 +93,11 @@ def build_fat_wheel(
             add_bytes("sovereign_ocr/bin/oar-ocr-cli", oar_bin_path.read_bytes(), executable=True)
 
         # 4. Write PEP-427 .dist-info metadata
-        readme_txt = (REPO_ROOT / "README.md").read_text() if (REPO_ROOT / "README.md").is_file() else ""
+        readme_txt = (
+            (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+            if (REPO_ROOT / "README.md").is_file()
+            else ""
+        )
         metadata_content = (
             "Metadata-Version: 2.1\n"
             "Name: sovereign-ocr\n"
@@ -152,10 +156,10 @@ if not MARKER.is_file():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(ARCHIVE_PATH, "r") as zf:
         zf.extractall(CACHE_DIR)
-    oar_bin = CACHE_DIR / "sovereign_ocr" / "bin" / "oar-ocr-cli"
-    if oar_bin.is_file():
+    oar_bin = CACHE_DIR / "sovereign_ocr" / "bin" / ("oar-ocr-cli.exe" if os.name == "nt" else "oar-ocr-cli")
+    if oar_bin.is_file() and os.name != "nt":
         oar_bin.chmod(oar_bin.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    MARKER.write_text(CACHE_HASH)
+    MARKER.write_text(CACHE_HASH, encoding="utf-8")
 
 sys.path.insert(0, str(CACHE_DIR))
 from sovereign_ocr.cli import main
