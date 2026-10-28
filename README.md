@@ -60,6 +60,29 @@ sovereign-ocr mcp --transport http --host 127.0.0.1 --port 8765
 6. `sovereign_ocr_build_sap_bapi` — Transform a governed extraction record into an SAP S/4HANA BAPI, OData, and BPMN 2.0 gateway decision.
 7. `sovereign_ocr_export_bpmn_dmn` — Export OASIS BPMN 2.0 XML and OMG DMN 1.3 XML for SAP Signavio and SAP Build Process Automation (SBPA).
 
+### Native Claude Desktop Double-Click Extension Bundles (`.mcpb` v0.4)
+Build self-contained `.mcpb` bundles across macOS ARM64 (`darwin-arm64`), Windows x64 (`win32-x64` with embedded Python 3.12 + `_pth` configuration + `.cmd` launcher), Linux x64 (`linux-x64`), and Linux ARM64 (`linux-arm64`):
+
+```bash
+python scripts/build_mcpb.py
+```
+
+---
+
+## Benchmarks (`v1.0.0` + `olaya v0.8.0`)
+
+Reproduce all benchmarks via [`scripts/run_benchmarks.py`](scripts/run_benchmarks.py) (consolidated JSON report in [`output/benchmark_results_latest.json`](output/benchmark_results_latest.json)):
+
+| Benchmark Suite | Split / Metric | Score | Details |
+| :--- | :--- | :---: | :--- |
+| **`allenai/olmOCR-bench`** | `headers_footers.jsonl` | **82.6%** (`628/760`) | **90.1%** (`685/760`) on native spatial header/footer filter |
+| **`allenai/olmOCR-bench`** | `long_tiny_text.jsonl` | **82.1%** (`363/442`) | Dense multi-column tiny text extraction |
+| **`allenai/olmOCR-bench`** | `multi_column.jsonl` (Reading Order) | **94.5%** (`345/365`) | **98.3%** (`287/292`) `layout_fast` `recursive` on proportional line segments |
+| **`allenai/olmOCR-bench`** | Core Document Splits Micro-Avg | **72.2%** (`1,337/1,853`) | `1,022` unique PDFs (`91` scanned/corrupted pages via `oar-ocr-cli`) |
+| **Enterprise SAP S/4HANA AP** | 100-Invoice Head-to-Head POC | **100.0%** (`100/100`) | All 10 SAP fields (`Doc Type`, `Vendor`, `Date`, `Ref`, `Amount`, `GL`, `CC`, `PC`, `Tax`, `Terms`) |
+| **Enterprise SAP S/4HANA AP** | Full `115`-Invoice `FB03` Benchmark | **99.1%** Ref / **98.3%** Date | **100.0%** Doc Type, **96.5%** Amount, **100.0%** `quad_fast` receipts in `16.34s` |
+| **Assurant Documentoscopia** | `20` Mobile Claims (`88` Files) | **100.0%** (`88/88`) | `32` `+29` CMap shifted PDFs + `90°` sideways RG recovered in `0.49s` |
+
 ---
 
 ## Citation

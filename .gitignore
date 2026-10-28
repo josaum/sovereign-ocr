@@ -24,8 +24,11 @@ venv/
 .ruff_cache/
 .leio-code/
 .DS_Store
-output/
+output/*
+!output/benchmark_results_latest.json
 tmp/
+bin/
+models/
 
 # leio-code local index and sidecars
 .leio-code/

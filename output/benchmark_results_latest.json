@@ -1,0 +1,148 @@
+{
+  "sovereign_ocr_version": "1.0.0",
+  "olaya_version": "0.8.0",
+  "leio_code_version": "2.6.6",
+  "olmocr_bench": {
+    "benchmark": "allenai/olmOCR-bench",
+    "bench_dir": "/Volumes/SAMSUNG_9100/MacBook/huggingface-hub/datasets--allenai--olmOCR-bench/snapshots/54a96a6fb6a2bd3b297e59869491db4d3625b711/bench_data",
+    "unique_pdf_pages_processed": 1022,
+    "scanned_pages_ocr_recovered": 131,
+    "total_unit_tests_evaluated": 4780,
+    "total_unit_tests_passed": 2076,
+    "overall_micro_average_pct": 43.43,
+    "core_document_splits_micro_average_pct": 72.15,
+    "multi_column_reading_order_when_located": {
+      "passed": 345,
+      "located": 365,
+      "accuracy_pct": 94.52
+    },
+    "per_split": {
+      "headers_footers.jsonl": {
+        "passed": 628,
+        "total": 760,
+        "score_pct": 82.63
+      },
+      "long_tiny_text.jsonl": {
+        "passed": 363,
+        "total": 442,
+        "score_pct": 82.13
+      },
+      "multi_column.jsonl": {
+        "passed": 345,
+        "total": 646,
+        "score_pct": 53.41
+      },
+      "old_scans.jsonl": {
+        "passed": 1,
+        "total": 5,
+        "score_pct": 20.0
+      },
+      "arxiv_math.jsonl": {
+        "passed": 739,
+        "total": 2927,
+        "score_pct": 25.25
+      }
+    },
+    "execution_time_seconds": 701.41
+  },
+  "assurant_documentoscopia": {
+    "benchmark": "Assurant Documentoscopia (Mobile Insurance Claims)",
+    "claims_evaluated": 20,
+    "total_files": 88,
+    "classified_files": 88,
+    "classification_accuracy_pct": 100.0,
+    "cmap_plus29_shifted_pdfs_recovered": 32,
+    "sideways_90deg_rg_orientation_recovered": true,
+    "unique_valid_cpfs": 9,
+    "unique_valid_imeis": 10,
+    "unique_valid_nfe_keys": 3,
+    "roles_distribution": {
+      "CLAIM_NOTICE_AVISO": 16,
+      "POLICE_REPORT_BO": 20,
+      "PROOF_OF_ADDRESS": 16,
+      "NOTA_FISCAL": 18,
+      "IDENTITY_DOCUMENT": 18
+    },
+    "execution_time_seconds": 0.49
+  },
+  "enterprise_sap_ap": {
+    "total_poc_invoices": 100,
+    "total_bundles_processed": 103,
+    "sovereign_coverage": 100,
+    "consultant_coverage": 69,
+    "fields": {
+      "document_ingested": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 69,
+        "consultant_pct": 69.0,
+        "delta_pct": 31.0
+      },
+      "doc_type": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 0,
+        "consultant_pct": 0.0,
+        "delta_pct": 100.0
+      },
+      "vendor_id": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 1,
+        "consultant_pct": 1.0,
+        "delta_pct": 99.0
+      },
+      "vendor_name": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 58,
+        "consultant_pct": 58.0,
+        "delta_pct": 42.0
+      },
+      "reference_invoice_no": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 55,
+        "consultant_pct": 55.0,
+        "delta_pct": 45.0
+      },
+      "amount_in_local_crcy": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 59,
+        "consultant_pct": 59.0,
+        "delta_pct": 41.0
+      },
+      "line_item_text_sgtxt": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 0,
+        "consultant_pct": 0.0,
+        "delta_pct": 100.0
+      },
+      "pmt_terms_zterm": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 0,
+        "consultant_pct": 0.0,
+        "delta_pct": 100.0
+      },
+      "tax_code": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 43,
+        "consultant_pct": 43.0,
+        "delta_pct": 57.0
+      },
+      "gl_cost_profit_center": {
+        "sovereign_correct": 100,
+        "sovereign_pct": 100.0,
+        "consultant_correct": 0,
+        "consultant_pct": 0.0,
+        "delta_pct": 100.0
+      }
+    },
+    "execution_time_seconds": 100.63,
+    "output_xlsx": "/Users/josaum/projects/central-ocr/output/Central_AP_Sovereign_Output.xlsx"
+  }
+}
